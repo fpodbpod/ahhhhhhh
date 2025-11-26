@@ -102,7 +102,6 @@ function compileNewDrone(newRecordingPath) {
                 .outputOptions([
                     '-map [out]', 
                     '-c:a libopus',
-                    '-q:a 9',
                     '-b:a 160k',
                     '-f webm'
                 ])
@@ -136,7 +135,6 @@ function compileNewDrone(newRecordingPath) {
                 .outputOptions([
                     '-map [out]', 
                     '-c:a libopus',
-                    '-q:a 9',
                     '-b:a 160k',
                     '-f webm' 
                 ])
