@@ -108,7 +108,13 @@ function compileNewDrone(newRecordingPath) {
                 ])
                 .save(MASTER_FILE)
                 .on('end', () => resolve())
-                .on('error', (err) => reject(`FFmpeg Error (First): ${err.message}`));
+                .on('error', (err) => {
+                    // If the first save fails, delete the potentially corrupt master file
+                    if (fs.existsSync(MASTER_FILE)) {
+                        fs.unlinkSync(MASTER_FILE);
+                    }
+                    reject(`FFmpeg Error (First): ${err.message}`);
+                });
 
         } else {
             // Subsequent Recordings: Trim silence, crossfade, and save as new master
@@ -140,7 +146,13 @@ function compileNewDrone(newRecordingPath) {
                     fs.renameSync(tempOutputFile, MASTER_FILE);
                     resolve();
                 })
-                .on('error', (err) => reject(`FFmpeg Error (Crossfade): ${err.message}`));
+                .on('error', (err) => {
+                    // If the crossfade fails, delete the temporary output file
+                    if (fs.existsSync(tempOutputFile)) {
+                        fs.unlinkSync(tempOutputFile);
+                    }
+                    reject(`FFmpeg Error (Crossfade): ${err.message}`);
+                });
         }
     });
 }
