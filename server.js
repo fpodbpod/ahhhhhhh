@@ -108,6 +108,7 @@ function compileNewDrone(newRecordingPath) {
             command
                 .complexFilter([
                     // 1. FIX: Isolate and format the master file stream (Input 0) for reliable crossfade
+                    //    aformat ensures consistent sample rate/format/channels
                     `[${masterInputIndex}:a]aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000[master]`,
                     
                     // 2. Trim and format the new recording (Input 1)
