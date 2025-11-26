@@ -102,19 +102,22 @@ function compileNewDrone(newRecordingPath) {
         } else {
             // Subsequent Recordings: Trim silence, crossfade, and save as new master
             console.log('Appending with crossfade...');
-            const masterInputIndex = 0;
-            const newAhhhInputIndex = 1;
+            const masterInputIndex = 0; // MASTER_FILE
+            const newAhhhInputIndex = 1; // newRecordingPath
             
             command
                 .complexFilter([
-                    // 1. Trim silence from the new recording
-                    `[${newAhhhInputIndex}:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02,areverse,silenceremove=start_periods=1:start_duration=1:start_threshold=0.02,areverse[trimmed_new]`,
+                    // 1. FIX: Isolate and format the master file stream (Input 0) for reliable crossfade
+                    `[${masterInputIndex}:a]aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000[master]`,
                     
-                    // 2. Crossfade/Concatenate the master and the trimmed new ahhh
-                    `[${masterInputIndex}:a][trimmed_new]acrossfade=d=${crossfadeDuration}:c1=tri[out]`, // The master input also needs the :a stream selector
+                    // 2. Trim and format the new recording (Input 1)
+                    `[${newAhhhInputIndex}:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02,areverse,silenceremove=start_periods=1:start_duration=1:start_threshold=0.02,areverse,aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000[trimmed_new]`,
+                    
+                    // 3. Crossfade/Concatenate the two explicitly prepared and formatted streams
+                    `[master][trimmed_new]acrossfade=d=${crossfadeDuration}:c1=tri[out]`,
                 ], 'out')
                 .outputOptions([
-                    '-map [out]', 
+                    '-map [out]', // CRITICAL: Map the output of the filter chain to the final file
                     '-c:a libopus' 
                 ])
                 .save(tempOutputFile)
