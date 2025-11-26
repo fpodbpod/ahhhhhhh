@@ -85,13 +85,16 @@ function compileNewDrone(newRecordingPath) {
             console.log('First recording detected. Trimming silence...');
             command
                 .complexFilter([
-                    // Trim silence from beginning and end (by reversing and trimming again)
-                    'silenceremove=start_periods=1:start_duration=1:start_threshold=0.02',
-                    'areverse', 
-                    'silenceremove=start_periods=1:start_duration=1:start_threshold=0.02',
-                    'areverse', 
+                    // FIX: Explicitly label the input stream [0:a] to avoid "Cannot find a matching stream" error
+                    '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]',
+                    '[trim1]areverse[rev1]', 
+                    '[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]',
+                    '[trim2]areverse[out]', // Label the final stream [out]
                 ])
-                .outputOptions('-c:a libopus')
+                .outputOptions([
+                    '-map [out]', // CRITICAL: Map the labeled output stream
+                    '-c:a libopus'
+                ])
                 .save(MASTER_FILE)
                 .on('end', () => resolve())
                 .on('error', (err) => reject(`FFmpeg Error (First): ${err.message}`));
@@ -105,10 +108,10 @@ function compileNewDrone(newRecordingPath) {
             command
                 .complexFilter([
                     // 1. Trim silence from the new recording
-                    `[${newAhhhInputIndex}]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02,areverse,silenceremove=start_periods=1:start_duration=1:start_threshold=0.02,areverse[trimmed_new]`,
+                    `[${newAhhhInputIndex}:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02,areverse,silenceremove=start_periods=1:start_duration=1:start_threshold=0.02,areverse[trimmed_new]`,
                     
                     // 2. Crossfade/Concatenate the master and the trimmed new ahhh
-                    `[${masterInputIndex}][trimmed_new]acrossfade=d=${crossfadeDuration}:c1=tri[out]`, // 'c1=tri' uses a triangular curve for a smooth fade
+                    `[${masterInputIndex}:a][trimmed_new]acrossfade=d=${crossfadeDuration}:c1=tri[out]`, // The master input also needs the :a stream selector
                 ], 'out')
                 .outputOptions([
                     '-map [out]', 
