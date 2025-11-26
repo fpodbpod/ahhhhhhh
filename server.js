@@ -3,22 +3,31 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const ffmpeg = require('fluent-ffmpeg');
+// >>> FIX 2: Import the static FFmpeg path
+const ffmpegStatic = require('@ffmpeg-installer/ffmpeg').path; 
+
+// >>> FIX 2: Tell fluent-ffmpeg where to find the binary
+ffmpeg.setFfmpegPath(ffmpegStatic); 
 
 const app = express();
 // Render assigns the port dynamically, so we use process.env.PORT
 const port = process.env.PORT || 3000; 
 
 // --- Configuration ---
-const upload = multer({ dest: 'uploads/' }); 
-const AUDIO_DIR = path.join(__dirname, 'audio');
+// >>> FIX 1: Use the /tmp directory for writable paths on Render
+const UPLOAD_DIR = '/tmp/uploads'; 
+const AUDIO_DIR = '/tmp/audio';
 const MASTER_FILE = path.join(AUDIO_DIR, 'master_drone.webm');
 
-// Ensure directories exist on server startup
+const upload = multer({ dest: UPLOAD_DIR }); 
+
+// Ensure directories exist on server startup, using the writable /tmp paths
+// The 'recursive: true' option handles creating parent directories if needed.
 if (!fs.existsSync(AUDIO_DIR)) {
-    fs.mkdirSync(AUDIO_DIR);
+    fs.mkdirSync(AUDIO_DIR, { recursive: true });
 }
-if (!fs.existsSync(path.join(__dirname, 'uploads'))) {
-    fs.mkdirSync(path.join(__dirname, 'uploads'));
+if (!fs.existsSync(UPLOAD_DIR)) {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
 // Middleware to allow your Cargo site (different domain) to talk to the server
@@ -41,12 +50,18 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
         console.log(`Starting compilation for file: ${req.file.originalname}`);
         await compileNewDrone(newFilePath);
         
-        fs.unlinkSync(newFilePath);
+        // This unlink should now work since the file is in /tmp/uploads
+        fs.unlinkSync(newFilePath); 
         console.log('Compilation successful and temporary file removed.');
         res.status(200).send('Successfully added to the communal ahhh!');
     } catch (error) {
+        // If compilation fails, the error message in the console will be essential
         console.error('Compilation Error:', error);
-        fs.unlinkSync(newFilePath); 
+        
+        // Ensure the temporary uploaded file is deleted even on failure
+        if (fs.existsSync(newFilePath)) {
+            fs.unlinkSync(newFilePath); 
+        }
         res.status(500).send('Failed to compile the new recording.');
     }
 });
@@ -64,6 +79,7 @@ app.get('/api/master_drone', (req, res) => {
 // --- Audio Compilation with FFmpeg (The Core Logic) ---
 function compileNewDrone(newRecordingPath) {
     return new Promise((resolve, reject) => {
+        // tempOutputFile now correctly points to /tmp/audio
         const tempOutputFile = path.join(AUDIO_DIR, `temp_${Date.now()}.webm`);
         const crossfadeDuration = 0.5; // 0.5 seconds
 
@@ -101,7 +117,7 @@ function compileNewDrone(newRecordingPath) {
             const newAhhhInputIndex = 1; 
             
             command
-                .complexFilter([ // <-- CORRECTED: Removed the second 'out' argument here
+                .complexFilter([
                     // 1. Isolate and format the master file stream (Input 0)
                     `[${masterInputIndex}:a]aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000[master]`,
                     
@@ -110,7 +126,7 @@ function compileNewDrone(newRecordingPath) {
                     
                     // 3. Crossfade/Concatenate the two explicitly prepared and formatted streams
                     `[master][trimmed_new]acrossfade=d=${crossfadeDuration}:c1=tri[out]`,
-                ]) // <-- REMOVED THE CONFLICTING 'out' ARGUMENT
+                ])
                 .outputOptions([
                     '-map [out]', 
                     '-c:a libopus',
@@ -120,6 +136,7 @@ function compileNewDrone(newRecordingPath) {
                 ])
                 .save(tempOutputFile)
                 .on('end', () => {
+                    // This rename/move operation should now work within the writable /tmp directory
                     fs.renameSync(tempOutputFile, MASTER_FILE);
                     resolve();
                 })
