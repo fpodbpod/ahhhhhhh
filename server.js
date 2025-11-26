@@ -9,9 +9,7 @@ const app = express();
 const port = process.env.PORT || 3000; 
 
 // --- Configuration ---
-// Destination for temporary uploads (Render requires this directory)
 const upload = multer({ dest: 'uploads/' }); 
-// Path for the master sound file
 const AUDIO_DIR = path.join(__dirname, 'audio');
 const MASTER_FILE = path.join(AUDIO_DIR, 'master_drone.webm');
 
@@ -25,7 +23,6 @@ if (!fs.existsSync(path.join(__dirname, 'uploads'))) {
 
 // Middleware to allow your Cargo site (different domain) to talk to the server
 app.use((req, res, next) => {
-    // You should restrict this to your Cargo domain for production
     res.header('Access-Control-Allow-Origin', '*'); 
     res.header('Access-Control-Allow-Methods', 'GET,POST');
     res.header('Access-Control-Allow-Headers', 'Content-Type');
@@ -38,19 +35,17 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
         return res.status(400).send('No audio file uploaded.');
     }
 
-    const newFilePath = req.file.path; // Path to the temporary upload
+    const newFilePath = req.file.path;
     
     try {
         console.log(`Starting compilation for file: ${req.file.originalname}`);
         await compileNewDrone(newFilePath);
         
-        // Clean up the temporary upload file
         fs.unlinkSync(newFilePath);
         console.log('Compilation successful and temporary file removed.');
         res.status(200).send('Successfully added to the communal ahhh!');
     } catch (error) {
         console.error('Compilation Error:', error);
-        // Clean up temporary file even if compilation fails
         fs.unlinkSync(newFilePath); 
         res.status(500).send('Failed to compile the new recording.');
     }
@@ -59,11 +54,9 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
 // --- API Endpoint 2: Serve the Master Drone (For Playback) ---
 app.get('/api/master_drone', (req, res) => {
     if (!fs.existsSync(MASTER_FILE)) {
-        // If the file doesn't exist, send a silent 1-second placeholder
         return res.status(404).send('The communal ahhh has not started yet!');
     }
     
-    // Set content type for streaming the audio file
     res.setHeader('Content-Type', 'audio/webm');
     res.sendFile(MASTER_FILE);
 });
@@ -85,15 +78,17 @@ function compileNewDrone(newRecordingPath) {
             console.log('First recording detected. Trimming silence...');
             command
                 .complexFilter([
-                    // FIX: Explicitly label the input stream [0:a] to avoid "Cannot find a matching stream" error
                     '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]',
                     '[trim1]areverse[rev1]', 
                     '[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]',
-                    '[trim2]areverse[out]', // Label the final stream [out]
+                    '[trim2]areverse[out]', 
                 ])
                 .outputOptions([
-                    '-map [out]', // CRITICAL: Map the labeled output stream
-                    '-c:a libopus'
+                    '-map [out]', 
+                    '-c:a libopus',
+                    '-q:a 9',
+                    '-b:a 160k',
+                    '-f webm'
                 ])
                 .save(MASTER_FILE)
                 .on('end', () => resolve())
@@ -102,13 +97,12 @@ function compileNewDrone(newRecordingPath) {
         } else {
             // Subsequent Recordings: Trim silence, crossfade, and save as new master
             console.log('Appending with crossfade...');
-            const masterInputIndex = 0; // MASTER_FILE
-            const newAhhhInputIndex = 1; // newRecordingPath
+            const masterInputIndex = 0; 
+            const newAhhhInputIndex = 1; 
             
             command
-                .complexFilter([
-                    // 1. FIX: Isolate and format the master file stream (Input 0) for reliable crossfade
-                    //    aformat ensures consistent sample rate/format/channels
+                .complexFilter([ // <-- CORRECTED: Removed the second 'out' argument here
+                    // 1. Isolate and format the master file stream (Input 0)
                     `[${masterInputIndex}:a]aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000[master]`,
                     
                     // 2. Trim and format the new recording (Input 1)
@@ -116,14 +110,16 @@ function compileNewDrone(newRecordingPath) {
                     
                     // 3. Crossfade/Concatenate the two explicitly prepared and formatted streams
                     `[master][trimmed_new]acrossfade=d=${crossfadeDuration}:c1=tri[out]`,
-                ], 'out')
+                ]) // <-- REMOVED THE CONFLICTING 'out' ARGUMENT
                 .outputOptions([
-                    '-map [out]', // CRITICAL: Map the output of the filter chain to the final file
-                    '-c:a libopus' 
+                    '-map [out]', 
+                    '-c:a libopus',
+                    '-q:a 9',
+                    '-b:a 160k',
+                    '-f webm' 
                 ])
                 .save(tempOutputFile)
                 .on('end', () => {
-                    // Replace the old master file with the new combined file
                     fs.renameSync(tempOutputFile, MASTER_FILE);
                     resolve();
                 })
