@@ -119,8 +119,15 @@ app.get('/api/master_drone', async (req, res) => {
             .on('error', (err) => {
                 console.error('FFmpeg streaming error:', err);
                 // Don't try to send a response if headers are already sent
+                console.error('FFmpeg streaming error:', err.message);
+                // End the response if an error occurs and headers haven't been sent
+                if (!res.headersSent) {
+                    res.status(500).send('Error during audio concatenation.');
+                }
             })
             .mergeToFile(res, PERSISTENT_STORAGE_PATH); // Stream directly to the response
+            .toFormat('webm') // Set the output format
+            .pipe(res, { end: true }); // Pipe the output stream directly to the response
 
     } catch (error) {
         console.error('Error serving master drone:', error);
