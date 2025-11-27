@@ -15,25 +15,12 @@ const port = process.env.PORT || 3000;
 
 // --- Configuration ---
 // Use the persistent disk path you created on Render.
-const PERSISTENT_STORAGE_PATH = '/var/data/ahhhhhhh_files';
 const PERSISTENT_STORAGE_PATH = '/var/data/ahhhhhhh_files'; // Final destination for processed files.
 const UPLOAD_DIR = '/tmp/uploads'; // Temporary location for initial uploads.
 
-// Configure multer to save files directly to the persistent disk with unique names.
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, PERSISTENT_STORAGE_PATH);
-    },
-    filename: function (req, file, cb) {
-        // Using a timestamp ensures files are unique and sortable by date.
-        cb(null, `ahhh-${Date.now()}.webm`);
-    }
-});
-const upload = multer({ storage: storage });
 // Configure multer to save files to the temporary upload directory.
 const upload = multer({ dest: UPLOAD_DIR });
 
-// Ensure the persistent storage directory exists on server startup.
 // Ensure both directories exist on server startup.
 if (!fs.existsSync(PERSISTENT_STORAGE_PATH)) {
     fs.mkdirSync(PERSISTENT_STORAGE_PATH, { recursive: true });
@@ -65,22 +52,17 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
         return res.status(400).send('No audio file uploaded.');
     }
 
-    const tempPath = req.file.path;
-    const finalPath = path.join(PERSISTENT_STORAGE_PATH, req.file.filename);
     const tempUploadPath = req.file.path; // Path to the file in /tmp/uploads
     const finalPath = path.join(PERSISTENT_STORAGE_PATH, `ahhh-${Date.now()}.webm`); // Define the final destination path
     
     try {
         // We will process the uploaded file to trim silence, then save it back to its final location.
-        console.log(`Processing and saving file: ${req.file.filename}`);
-        await trimAndSave(tempPath, finalPath);
         console.log(`Processing file from ${tempUploadPath} to ${finalPath}`);
         await trimAndSave(tempUploadPath, finalPath);
         console.log(`File successfully saved to persistent storage: ${finalPath}`);
         res.status(200).send('Successfully added to the communal ahhh!');
     } catch (error) {
         console.error('Error processing upload:', error);
-        // Clean up the file if processing fails.
         // Clean up the final file if it was partially created on failure.
         if (fs.existsSync(finalPath)) {
             fs.unlinkSync(finalPath);
@@ -187,7 +169,6 @@ function trimAndSave(inputPath, outputPath) {
             .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm'])
             .save(outputPath)
             .on('end', () => {
-                // After saving, delete the original temporary file from multer
                 // After successfully saving the trimmed file, delete the original temporary upload.
                 if (fs.existsSync(inputPath)) {
                     fs.unlinkSync(inputPath);
