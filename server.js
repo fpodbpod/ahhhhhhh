@@ -60,7 +60,7 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
         console.log(`Processing file from ${tempUploadPath} to ${finalPath}`);
         await trimAndSave(tempUploadPath, finalPath);
         console.log(`File successfully saved to persistent storage: ${finalPath}`);
-        res.status(200).send('Successfully added to the communal ahhh!');
+        res.status(200).json({ message: 'Successfully added to the communal ahhh!', status: 'processed' });
     } catch (error) {
         console.error('Error processing upload:', error);
         // Clean up the final file if it was partially created on failure.
@@ -117,11 +117,10 @@ app.get('/api/master_drone', async (req, res) => {
 
         command
             .on('error', (err) => {
-                console.error('FFmpeg streaming error:', err);
-                // Don't try to send a response if headers are already sent
                 console.error('FFmpeg streaming error:', err.message);
                 // End the response if an error occurs and headers haven't been sent
                 if (!res.headersSent) {
+                    // Don't try to send a response if headers are already sent
                     res.status(500).send('Error during audio concatenation.');
                 }
             })
