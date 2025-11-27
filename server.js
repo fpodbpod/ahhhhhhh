@@ -30,11 +30,20 @@ if (!fs.existsSync(UPLOAD_DIR)) {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
+// Middleware to parse JSON bodies (needed for the new reset endpoint)
+app.use(express.json());
+
 // Middleware to allow your Cargo site (different domain) to talk to the server
 app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*'); 
-    res.header('Access-Control-Allow-Methods', 'GET,POST');
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type');
+
+    // Handle preflight requests (the browser sends an OPTIONS request first)
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(204);
+    }
+
     next();
 });
 
@@ -74,6 +83,33 @@ app.get('/api/master_drone', (req, res) => {
     
     res.setHeader('Content-Type', 'audio/webm');
     res.sendFile(MASTER_FILE);
+});
+
+// --- API Endpoint 3: Reset All Recordings (Secret Endpoint) ---
+app.post('/api/reset', (req, res) => {
+    const { secret } = req.body;
+
+    // The secret key you requested
+    const RESET_SECRET_KEY = 'lulu';
+
+    if (secret !== RESET_SECRET_KEY) {
+        // If the key is wrong or missing, deny access
+        return res.status(403).send('Forbidden: Invalid secret key.');
+    }
+
+    // If the key is correct, proceed with deletion
+    try {
+        if (fs.existsSync(MASTER_FILE)) {
+            fs.unlinkSync(MASTER_FILE);
+            console.log('LOG: Master drone file has been deleted by secret key.');
+            res.status(200).send('The communal ahhh has been reset.');
+        } else {
+            res.status(200).send('Nothing to reset. The communal ahhh was already empty.');
+        }
+    } catch (error) {
+        console.error('ERROR: Failed to reset recordings:', error);
+        res.status(500).send('An error occurred while trying to reset the recordings.');
+    }
 });
 
 // --- Audio Compilation with FFmpeg (The Core Logic) ---
