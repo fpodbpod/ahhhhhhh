@@ -95,6 +95,8 @@ app.get('/api/master_drone', async (req, res) => {
             // res.sendFile requires an absolute path, which is already in playlist[0].
             const singleFilePath = playlist[0];
             console.log(`Serving single file: ${singleFilePath}`);
+            // Explicitly set the Content-Type header so the browser knows how to play the file.
+            res.setHeader('Content-Type', 'audio/webm');
             return res.sendFile(singleFilePath);
         }
 
