@@ -115,11 +115,22 @@ app.get('/api/master_drone', async (req, res) => {
                     res.status(500).send('Error during audio concatenation.');
                 }
             })
-            // Use the 'concat' filter to merge all inputs.
-            // 'n' is the number of inputs, 'v=0' for no video, 'a=1' for one audio stream.
-            .complexFilter(`concat=n=${playlist.length}:v=0:a=1`)
-            // Set the output format and pipe the stream to the response.
-            .toFormat('webm')
+            // --- NEW: Build a crossfade filter chain ---
+            .complexFilter(() => {
+                const crossfadeDuration = 2; // 2-second crossfade between clips
+                let filterChain = '';
+                let lastStream = '[0:a]'; // Start with the first input
+
+                // Loop through the rest of the files to create pairs for crossfading
+                for (let i = 1; i < playlist.length; i++) {
+                    const currentStream = `[${i}:a]`;
+                    const outputStream = `[a${i-1}]`;
+                    filterChain += `${lastStream}${currentStream}acrossfade=d=${crossfadeDuration}${outputStream};`;
+                    lastStream = outputStream;
+                }
+                // The final output stream is the last one we created.
+                return filterChain.slice(0, -1); // Remove the final semicolon
+            })
             .pipe(res, { end: true });
     } catch (error) {
         console.error('Error serving master drone:', error);
