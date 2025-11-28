@@ -115,32 +115,17 @@ app.get('/api/master_drone', async (req, res) => {
                     res.status(500).send('Error during audio concatenation.');
                 }
             })
-            // --- NEW: Build a crossfade filter chain ---
-            .complexFilter((() => {
-            .complexFilter(
-                (() => {
-                const crossfadeDuration = 2; // 2-second crossfade between clips
-                let filterChain = '';
-                let lastStream = '[0:a]'; // Start with the first input
-
-                for (let i = 1; i < playlist.length; i++) {
-                    const currentStream = `[${i}:a]`;
-                    const outputStream = `[a${i-1}]`;
-                    filterChain += `${lastStream}${currentStream}acrossfade=d=${crossfadeDuration}${outputStream};`;
-                    lastStream = outputStream;
-                }
-                // The final filter chain needs to map the last created stream to the output.
-                return `${filterChain.slice(0, -1)}`;
-                // Build the filter chain by reducing the playlist into a single ffmpeg command string.
-                const filter = playlist.slice(1).reduce((acc, file, index) => {
-                    const input1 = index === 0 ? '[0:a]' : `[out${index - 1}]`;
-                    const input2 = `[${index + 1}:a]`;
-                    const output = `[out${index}]`;
-                    return `${acc}${input1}${input2}acrossfade=d=${crossfadeDuration}${output};`;
-                }, '');
-                return filter + `[out${playlist.length - 2}]`; // Explicitly select the final output stream
-            })())
-            .outputOptions('-map', `[a${playlist.length - 2}]`) // Map the final stream
+            // Use a complex filter to crossfade all audio files in the playlist.
+            .complexFilter(playlist.slice(1).reduce((filter, file, index) => {
+                // For each file after the first, add an 'acrossfade' stage.
+                // [0:a][1:a]acrossfade=d=2[a0]; [a0][2:a]acrossfade=d=2[a1]; ...
+                const input1 = index === 0 ? '[0:a]' : `[a${index - 1}]`;
+                const input2 = `[${index + 1}:a]`;
+                const output = `[a${index}]`;
+                return `${filter}${input1}${input2}acrossfade=d=2${output};`;
+            }, '').slice(0, -1)) // Build the chain and remove the final semicolon.
+            // After the filter chain is built, map the final output stream.
+            .outputOptions('-map', `[a${playlist.length - 2}]`)
             .pipe(res, { end: true });
     } catch (error) {
         console.error('Error serving master drone:', error);
