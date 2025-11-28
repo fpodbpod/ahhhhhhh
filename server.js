@@ -124,8 +124,6 @@ app.get('/api/master_drone', async (req, res) => {
                     res.status(500).send('Error during audio concatenation.');
                 }
             })
-            .toFormat('webm') // Set the output format
-            .pipe(res, { end: true }); // Pipe the output stream directly to the response
             // Use mergeToFile and pass the response stream directly.
             // This correctly tells ffmpeg to concatenate all the inputs.
             .mergeToFile(res, PERSISTENT_STORAGE_PATH);
@@ -166,26 +164,6 @@ app.post('/api/reset', (req, res) => {
 // --- Audio Processing Helper Function ---
 function trimAndSave(inputPath, outputPath) {
     return new Promise((resolve, reject) => {
-        ffmpeg(inputPath)
-            .complexFilter([
-                // Trim silence from both start and end of the recording
-                '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]',
-                '[trim1]areverse[rev1]',
-                '[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]',
-                '[trim2]areverse[out]',
-            ])
-            .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm'])
-            .save(outputPath)
-            .on('end', () => {
-                // After successfully saving the trimmed file, delete the original temporary upload.
-                if (fs.existsSync(inputPath)) {
-                    fs.unlinkSync(inputPath);
-                }
-                resolve();
-            })
-            .on('error', (err) => {
-                reject(`FFmpeg Error (Trim): ${err.message}`);
-            });
         try {
             ffmpeg(inputPath)
                 .complexFilter([
