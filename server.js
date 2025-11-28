@@ -183,6 +183,32 @@ function trimAndSave(inputPath, outputPath) {
             .on('error', (err) => {
                 reject(`FFmpeg Error (Trim): ${err.message}`);
             });
+        try {
+            ffmpeg(inputPath)
+                .complexFilter([
+                    // Trim silence from both start and end of the recording
+                    '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]',
+                    '[trim1]areverse[rev1]',
+                    '[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]',
+                    '[trim2]areverse[out]',
+                ])
+                .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm'])
+                .save(outputPath)
+                .on('end', () => {
+                    // After successfully saving the trimmed file, delete the original temporary upload.
+                    if (fs.existsSync(inputPath)) {
+                        fs.unlinkSync(inputPath);
+                    }
+                    resolve();
+                })
+                .on('error', (err) => {
+                    // This will now safely reject the promise without crashing.
+                    reject(new Error(`FFmpeg processing error: ${err.message}`));
+                });
+        } catch (error) {
+            // This outer catch will handle any synchronous errors during ffmpeg setup.
+            reject(new Error(`FFmpeg setup failed: ${error.message}`));
+        }
     });
 }
 
