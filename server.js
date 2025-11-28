@@ -2,12 +2,8 @@ const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
+const cors = require('cors'); // Import the cors package
 const ffmpeg = require('fluent-ffmpeg');
-// >>> FIX 2: Import the static FFmpeg path
-const ffmpegStatic = require('@ffmpeg-installer/ffmpeg').path; 
-
-// >>> FIX 2: Tell fluent-ffmpeg where to find the binary
-ffmpeg.setFfmpegPath(ffmpegStatic); 
 
 const app = express();
 // Render assigns the port dynamically, so we use process.env.PORT
@@ -29,22 +25,12 @@ if (!fs.existsSync(UPLOAD_DIR)) {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
+// Use the cors middleware to handle all CORS-related headers automatically.
+// This is more robust than setting headers manually.
+app.use(cors());
+
 // Middleware to parse JSON bodies (needed for the new reset endpoint)
 app.use(express.json());
-
-// Middleware to allow your Cargo site (different domain) to talk to the server
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
-
-    // Handle preflight requests (the browser sends an OPTIONS request first)
-    if (req.method === 'OPTIONS') {
-        return res.sendStatus(204);
-    }
-
-    next();
-});
 
 // --- API Endpoint 1: Upload New Recording ---
 app.post('/api/upload', upload.single('audio'), async (req, res) => {
