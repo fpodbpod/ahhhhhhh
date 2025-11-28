@@ -100,16 +100,6 @@ app.get('/api/master_drone', async (req, res) => {
             playlist = files.reverse().map(f => f.path); // reverse to get oldest first
         }
 
-        if (playlist.length === 1) {
-            // If there's only one file, just send it directly.
-            // res.sendFile requires an absolute path, which is already in playlist[0].
-            const singleFilePath = playlist[0];
-            console.log(`Serving single file: ${singleFilePath}`);
-            // Explicitly set the Content-Type header so the browser knows how to play the file.
-            res.setHeader('Content-Type', 'audio/webm');
-            return res.sendFile(singleFilePath);
-        }
-
         // Use ffmpeg to concatenate the playlist and stream it to the user.
         const command = ffmpeg();
         playlist.forEach(file => command.input(file));
