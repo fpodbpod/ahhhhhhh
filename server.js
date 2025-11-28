@@ -126,6 +126,9 @@ app.get('/api/master_drone', async (req, res) => {
             })
             .toFormat('webm') // Set the output format
             .pipe(res, { end: true }); // Pipe the output stream directly to the response
+            // Use mergeToFile and pass the response stream directly.
+            // This correctly tells ffmpeg to concatenate all the inputs.
+            .mergeToFile(res, PERSISTENT_STORAGE_PATH);
 
     } catch (error) {
         console.error('Error serving master drone:', error);
