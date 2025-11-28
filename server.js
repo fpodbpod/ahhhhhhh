@@ -116,21 +116,21 @@ app.get('/api/master_drone', async (req, res) => {
                 }
             })
             // --- NEW: Build a crossfade filter chain ---
-            .complexFilter(() => {
+            .complexFilter((() => {
                 const crossfadeDuration = 2; // 2-second crossfade between clips
                 let filterChain = '';
                 let lastStream = '[0:a]'; // Start with the first input
 
-                // Loop through the rest of the files to create pairs for crossfading
                 for (let i = 1; i < playlist.length; i++) {
                     const currentStream = `[${i}:a]`;
                     const outputStream = `[a${i-1}]`;
                     filterChain += `${lastStream}${currentStream}acrossfade=d=${crossfadeDuration}${outputStream};`;
                     lastStream = outputStream;
                 }
-                // The final output stream is the last one we created.
-                return filterChain.slice(0, -1); // Remove the final semicolon
-            })
+                // The final filter chain needs to map the last created stream to the output.
+                return `${filterChain.slice(0, -1)}`;
+            })())
+            .outputOptions('-map', `[a${playlist.length - 2}]`) // Map the final stream
             .pipe(res, { end: true });
     } catch (error) {
         console.error('Error serving master drone:', error);
