@@ -124,7 +124,6 @@ app.get('/api/master_drone', async (req, res) => {
                     res.status(500).send('Error during audio concatenation.');
                 }
             })
-            .mergeToFile(res, PERSISTENT_STORAGE_PATH); // Stream directly to the response
             .toFormat('webm') // Set the output format
             .pipe(res, { end: true }); // Pipe the output stream directly to the response
 
