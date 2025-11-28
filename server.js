@@ -106,7 +106,10 @@ app.get('/api/master_drone', async (req, res) => {
 
         if (playlist.length === 1) {
             // If there's only one file, just send it directly.
-            return res.sendFile(playlist[0]);
+            // res.sendFile requires an absolute path, which is already in playlist[0].
+            const singleFilePath = playlist[0];
+            console.log(`Serving single file: ${singleFilePath}`);
+            return res.sendFile(singleFilePath);
         }
 
         // Use ffmpeg to concatenate the playlist and stream it to the user.
