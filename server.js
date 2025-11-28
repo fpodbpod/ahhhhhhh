@@ -115,17 +115,10 @@ app.get('/api/master_drone', async (req, res) => {
                     res.status(500).send('Error during audio concatenation.');
                 }
             })
-            // Use a complex filter to crossfade all audio files in the playlist.
-            .complexFilter(playlist.slice(1).reduce((filter, file, index) => {
-                // For each file after the first, add an 'acrossfade' stage.
-                // [0:a][1:a]acrossfade=d=2[a0]; [a0][2:a]acrossfade=d=2[a1]; ...
-                const input1 = index === 0 ? '[0:a]' : `[a${index - 1}]`;
-                const input2 = `[${index + 1}:a]`;
-                const output = `[a${index}]`;
-                return `${filter}${input1}${input2}acrossfade=d=2${output};`;
-            }, '').slice(0, -1)) // Build the chain and remove the final semicolon.
-            // After the filter chain is built, map the final output stream.
-            .outputOptions('-map', `[a${playlist.length - 2}]`)
+            // --- NEW STRATEGY: Use the 'amix' filter for a simpler, more robust mix ---
+            // This mixes all inputs together. 'duration=longest' ensures the output lasts
+            // as long as the longest input, creating the drone effect.
+            .complexFilter(`amix=inputs=${playlist.length}:duration=longest`)
             .pipe(res, { end: true });
     } catch (error) {
         console.error('Error serving master drone:', error);
