@@ -73,6 +73,16 @@ app.get('/api/master_drone', async (req, res) => {
             return res.status(404).send('The communal ahhh has not started yet!');
         }
 
+        // --- FIX: Handle the single-file case FIRST to avoid ffmpeg setup errors ---
+        if (files.length === 1) {
+            const singleFilePath = files[0].path;
+            console.log(`Serving single file: ${singleFilePath}`);
+            // Explicitly set the Content-Type header so the browser knows how to play the file.
+            res.setHeader('Content-Type', 'audio/webm');
+            return res.sendFile(singleFilePath);
+        }
+        // -------------------------------------------------------------------------
+
         let playlist = [];
         // Handle the `order=special` query from the frontend
         if (req.query.order === 'special' && files.length > 1) {
@@ -184,6 +194,14 @@ function trimAndSave(inputPath, outputPath) {
                     if (fs.existsSync(inputPath)) {
                         fs.unlinkSync(inputPath);
                     }
+                    // --- FIX: Check if the output file is empty ---
+                    const stats = fs.statSync(outputPath);
+                    if (stats.size === 0) {
+                        // If the file is empty (e.g., all silence was trimmed), reject the promise.
+                        fs.unlinkSync(outputPath); // Clean up the empty file
+                        return reject(new Error('Recording was empty after trimming silence.'));
+                    }
+                    // ---------------------------------------------
                     resolve();
                 })
                 .on('error', (err) => {
