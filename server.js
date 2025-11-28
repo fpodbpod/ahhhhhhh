@@ -115,10 +115,12 @@ app.get('/api/master_drone', async (req, res) => {
                     res.status(500).send('Error during audio concatenation.');
                 }
             })
-            // Use mergeToFile and pass the response stream directly.
-            // This correctly tells ffmpeg to concatenate all the inputs.
-            .mergeToFile(res, PERSISTENT_STORAGE_PATH);
-
+            // Use the 'concat' filter to merge all inputs.
+            // 'n' is the number of inputs, 'v=0' for no video, 'a=1' for one audio stream.
+            .complexFilter(`concat=n=${playlist.length}:v=0:a=1`)
+            // Set the output format and pipe the stream to the response.
+            .toFormat('webm')
+            .pipe(res, { end: true });
     } catch (error) {
         console.error('Error serving master drone:', error);
         res.status(500).send('Could not generate the communal ahhh.');
