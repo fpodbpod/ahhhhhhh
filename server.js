@@ -117,6 +117,8 @@ app.get('/api/master_drone', async (req, res) => {
             })
             // --- NEW: Build a crossfade filter chain ---
             .complexFilter((() => {
+            .complexFilter(
+                (() => {
                 const crossfadeDuration = 2; // 2-second crossfade between clips
                 let filterChain = '';
                 let lastStream = '[0:a]'; // Start with the first input
@@ -129,6 +131,14 @@ app.get('/api/master_drone', async (req, res) => {
                 }
                 // The final filter chain needs to map the last created stream to the output.
                 return `${filterChain.slice(0, -1)}`;
+                // Build the filter chain by reducing the playlist into a single ffmpeg command string.
+                const filter = playlist.slice(1).reduce((acc, file, index) => {
+                    const input1 = index === 0 ? '[0:a]' : `[out${index - 1}]`;
+                    const input2 = `[${index + 1}:a]`;
+                    const output = `[out${index}]`;
+                    return `${acc}${input1}${input2}acrossfade=d=${crossfadeDuration}${output};`;
+                }, '');
+                return filter + `[out${playlist.length - 2}]`; // Explicitly select the final output stream
             })())
             .outputOptions('-map', `[a${playlist.length - 2}]`) // Map the final stream
             .pipe(res, { end: true });
