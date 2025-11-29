@@ -48,7 +48,7 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
     }
 
     const tempUploadPath = req.file.path; // Path to the file in /tmp/uploads
-    const finalPath = path.join(PERSISTENT_STORAGE_PATH, `ahhh-${Date.now()}.webm`); // Define the final destination path
+    const finalPath = path.join(PERSISTENT_STORAGE_PATH, `ahhh-${Date.now()}${path.extname(req.file.originalname)}`);
     
     try {
         // We will process the uploaded file to trim silence, then save it back to its final location.
@@ -70,7 +70,7 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
 app.get('/api/master_drone', async (req, res) => {
     try {
         const files = fs.readdirSync(PERSISTENT_STORAGE_PATH)
-            .filter(file => file.endsWith('.webm'))
+            .filter(file => file.endsWith('.webm') || file.endsWith('.mp4'))
             .map(file => { // Get stats for each file
                 const filePath = path.join(PERSISTENT_STORAGE_PATH, file);
                 try {
@@ -94,7 +94,7 @@ app.get('/api/master_drone', async (req, res) => {
         if (files.length === 1) {
             const singleFilePath = files[0].path;
             console.log(`Serving single file: ${singleFilePath}`);
-            // Explicitly set the Content-Type header so the browser knows how to play the file.
+            // Set Content-Type based on the file extension
             res.setHeader('Content-Type', 'audio/webm');
             return res.sendFile(singleFilePath);
         }
@@ -121,7 +121,8 @@ app.get('/api/master_drone', async (req, res) => {
         const command = ffmpeg();
         playlist.forEach(file => command.input(file));
 
-        res.setHeader('Content-Type', 'audio/webm');
+        // Always output as webm for consistent playback, as ffmpeg can convert mp4 on the fly.
+        res.setHeader('Content-Type', 'audio/webm'); 
 
         command
             .on('error', (err) => {
@@ -191,7 +192,7 @@ function trimAndSave(inputPath, outputPath) {
                     '[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]',
                     '[trim2]areverse[out]',
                 ])
-                .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm'])
+                .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k']) // Let ffmpeg determine format from outputPath
                 .save(outputPath)
                 .on('end', async () => { // Make the callback async
                     try {
