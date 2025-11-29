@@ -46,34 +46,41 @@ var secretKeyInput;
 var resetButton;
 
 // --- 3. Function to Initialize the Application (Runs AFTER Page Loads) ---
-function initializeApp() {
-    // This function can be called multiple times, so we check if elements exist before assigning.
-    if (!recordButton) recordButton = document.getElementById('recordButton'); 
-    if (!stopButton) stopButton = document.getElementById('stopButton'); 
-    if (!unfreezeButton) unfreezeButton = document.getElementById('unfreezeButton');
-    if (!previewButton) previewButton = document.getElementById('previewButton');
-    if (!submitButton) submitButton = document.getElementById('submitButton');
-    if (!discardButton) discardButton = document.getElementById('discardButton');
-    if (!playButton) playButton = document.getElementById('playChainButton');
-    if (!statusText) statusText = document.getElementById('status');
-    if (!secretKeyInput) secretKeyInput = document.getElementById('secretKeyInput');
-    if (!resetButton) resetButton = document.getElementById('resetButton');
+function waitForAppAndInitialize() {
+    const appContainer = document.getElementById('sound-art-app');
+    if (appContainer) {
+        console.log("LOG: App container found. Initializing listeners.");
+        // --- Assign elements ---
+        recordButton = document.getElementById('recordButton'); 
+        stopButton = document.getElementById('stopButton'); 
+        unfreezeButton = document.getElementById('unfreezeButton');
+        previewButton = document.getElementById('previewButton');
+        submitButton = document.getElementById('submitButton');
+        discardButton = document.getElementById('discardButton');
+        playButton = document.getElementById('playChainButton');
+        statusText = document.getElementById('status');
+        secretKeyInput = document.getElementById('secretKeyInput');
+        resetButton = document.getElementById('resetButton');
 
-    // Remove old listeners to prevent duplicates, then add them.
-    if (recordButton) { recordButton.removeEventListener('click', startRecording); recordButton.addEventListener('click', startRecording); }
-    if (stopButton) { stopButton.removeEventListener('click', stopRecording); stopButton.addEventListener('click', stopRecording); }
-    if (submitButton) { submitButton.removeEventListener('click', submitAhhh); submitButton.addEventListener('click', submitAhhh); }
-    if (discardButton) { discardButton.removeEventListener('click', discardAhhh); discardButton.addEventListener('click', discardAhhh); }
-    if (playButton) { playButton.removeEventListener('click', playAhhh); playButton.addEventListener('click', playAhhh); }
-    if (unfreezeButton) { unfreezeButton.removeEventListener('click', unfreezeInterface); unfreezeButton.addEventListener('click', unfreezeInterface); }
-    if (previewButton) { previewButton.removeEventListener('click', previewAhhh); previewButton.addEventListener('click', previewAhhh); }
-    if (resetButton) { resetButton.removeEventListener('click', resetAhhs); resetButton.addEventListener('click', resetAhhs); }
+        // --- Attach listeners ---
+        if (recordButton) recordButton.addEventListener('click', startRecording);
+        if (stopButton) stopButton.addEventListener('click', stopRecording);
+        if (submitButton) submitButton.addEventListener('click', submitAhhh);
+        if (discardButton) discardButton.addEventListener('click', discardAhhh);
+        if (playButton) playButton.addEventListener('click', playAhhh);
+        if (unfreezeButton) unfreezeButton.addEventListener('click', unfreezeInterface);
+        if (previewButton) previewButton.addEventListener('click', previewAhhh);
+        if (resetButton) resetButton.addEventListener('click', resetAhhs);
 
-    if (statusText) statusText.textContent = "Press 'Start Recording' to request microphone access. Recording will begin after 3 second countdown.";
+        if (statusText) statusText.textContent = "Press 'Start Recording' to request microphone access. Recording will begin after 3 second countdown.";
+    } else {
+        console.log("LOG: App container not found yet. Retrying in 100ms.");
+        setTimeout(waitForAppAndInitialize, 100); // Retry after a short delay
+    }
 }
 
-// Use DOMContentLoaded for faster, more reliable initialization.
-document.addEventListener('DOMContentLoaded', initializeApp);
+// Start the initialization check.
+waitForAppAndInitialize();
 
 // --- 4. Main Application Functions ---
 
