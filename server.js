@@ -62,18 +62,20 @@ app.get('/api/master_drone', async (req, res) => {
     try {
         const files = fs.readdirSync(PERSISTENT_STORAGE_PATH)
             .filter(file => file.endsWith('.webm'))
-            .map(file => {
+            .map(file => { // Get stats for each file
                 const filePath = path.join(PERSISTENT_STORAGE_PATH, file);
-                const stats = fs.statSync(filePath);
-                return {
-                    name: file,
-                    path: filePath,
-                    time: stats.mtime.getTime(),
-                    size: stats.size,
-                };
+                try {
+                    const stats = fs.statSync(filePath);
+                    return { name: file, path: filePath, time: stats.mtime.getTime(), size: stats.size };
+                } catch (e) {
+                    console.error(`Could not stat file ${filePath}, skipping. Error: ${e.message}`);
+                    return null; // If we can't get stats, ignore the file.
+                }
             })
-            .filter(file => file.size > 0) // <-- THE CRITICAL FIX: Ignore empty files.
+            .filter(file => file && file.size > 100) // Filter out nulls and any file smaller than 100 bytes.
             .sort((a, b) => b.time - a.time); // Sort descending, newest first
+
+        console.log(`LOG: Found ${files.length} valid recordings to play.`);
 
         if (files.length === 0) {
             return res.status(404).send('The communal ahhh has not started yet!');
