@@ -123,13 +123,20 @@ app.get('/api/master_drone', async (req, res) => {
                     res.status(500).send('Error during audio concatenation.');
                 }
             })
-            // --- NEW STRATEGY: Use the 'amix' filter for a simpler, more robust mix ---
-            // This mixes all inputs together. 'duration=longest' ensures the output lasts
-            // as long as the longest input, creating the drone effect.
-            .complexFilter(`amix=inputs=${playlist.length}:duration=longest`)
-            // CRITICAL FIX: Explicitly set the output format to a web-playable container.
-            .toFormat('webm')
-            .pipe(res, { end: true });
+
+        // --- Playback Mode Switching Logic ---
+        if (req.query.mode === 'sequential') {
+            // SEQUENTIAL MODE: Use the 'concat' filter to play files one after another.
+            console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
+            command.complexFilter(`concat=n=${playlist.length}:v=0:a=1`);
+        } else {
+            // SIMULTANEOUS (LAYERED) MODE: Use the 'amix' filter to play all at once.
+            console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
+            command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
+        }
+
+        command.toFormat('webm').pipe(res, { end: true });
+
     } catch (error) {
         console.error('Error serving master drone:', error);
         res.status(500).send('Could not generate the communal ahhh.');
