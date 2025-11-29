@@ -62,11 +62,17 @@ app.get('/api/master_drone', async (req, res) => {
     try {
         const files = fs.readdirSync(PERSISTENT_STORAGE_PATH)
             .filter(file => file.endsWith('.webm'))
-            .map(file => ({
-                name: file,
-                path: path.join(PERSISTENT_STORAGE_PATH, file),
-                time: fs.statSync(path.join(PERSISTENT_STORAGE_PATH, file)).mtime.getTime(),
-            }))
+            .map(file => {
+                const filePath = path.join(PERSISTENT_STORAGE_PATH, file);
+                const stats = fs.statSync(filePath);
+                return {
+                    name: file,
+                    path: filePath,
+                    time: stats.mtime.getTime(),
+                    size: stats.size,
+                };
+            })
+            .filter(file => file.size > 0) // <-- THE CRITICAL FIX: Ignore empty files.
             .sort((a, b) => b.time - a.time); // Sort descending, newest first
 
         if (files.length === 0) {
