@@ -1,372 +1,213 @@
-// Complete updated server code using FFmpeg concat demuxer
-
 const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
-const cors = require('cors');
+const cors = require('cors'); // Import the cors package
 const ffmpeg = require('fluent-ffmpeg');
-const ffmpegPath = require('ffmpeg-static');
-const os = require('os');
-
-if (ffmpegPath) {
-  ffmpeg.setFfmpegPath(ffmpegPath);
-  console.log('Using ffmpeg-static at', ffmpegPath);
-}
 
 const app = express();
-const port = process.env.PORT || 3000;
+// Render assigns the port dynamically, so we use process.env.PORT
+const port = process.env.PORT || 3000; 
 
-const PERSISTENT_STORAGE_PATH = '/var/data/ahhhhhhh_files';// Complete updated server code using FFmpeg concat demuxer
+// --- Configuration ---
+// Use the persistent disk path you created on Render.
+const PERSISTENT_STORAGE_PATH = '/var/data/ahhhhhhh_files'; // Final destination for processed files.
+const UPLOAD_DIR = '/tmp/uploads'; // Temporary location for initial uploads.
 
-const express = require('express');
-const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
-const cors = require('cors');
-const ffmpeg = require('fluent-ffmpeg');
-const ffmpegPath = require('ffmpeg-static');
-const os = require('os');
-
-if (ffmpegPath) {
-  ffmpeg.setFfmpegPath(ffmpegPath);
-  console.log('Using ffmpeg-static at', ffmpegPath);
-}
-
-const app = express();
-const port = process.env.PORT || 3000;
-
-const PERSISTENT_STORAGE_PATH = '/var/data/ahhhhhhh_files';
-const UPLOAD_DIR = '/tmp/uploads';
-
+// Configure multer to save files to the temporary upload directory.
 const upload = multer({ dest: UPLOAD_DIR });
 
-// Ensure directories
-if (!fs.existsSync(PERSISTENT_STORAGE_PATH)) fs.mkdirSync(PERSISTENT_STORAGE_PATH, { recursive: true });
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+// Ensure both directories exist on server startup.
+if (!fs.existsSync(PERSISTENT_STORAGE_PATH)) {
+    fs.mkdirSync(PERSISTENT_STORAGE_PATH, { recursive: true });
+}
+if (!fs.existsSync(UPLOAD_DIR)) {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
 
+// Use the cors middleware to handle all CORS-related headers automatically.
+// This is more robust than setting headers manually.
 app.use(cors());
+
+// Middleware to parse JSON bodies (needed for the new reset endpoint)
 app.use(express.json());
 
-// ---- Upload Endpoint ----
+// --- API Endpoint 1: Upload New Recording ---
 app.post('/api/upload', upload.single('audio'), async (req, res) => {
-  if (!req.file) return res.status(400).send('No audio file uploaded.');
-
-  const tempUploadPath = req.file.path;
-  const finalPath = path.join(PERSISTENT_STORAGE_PATH, `ahhh-${Date.now()}.webm`);
-
-  try {
-    await trimAndSave(tempUploadPath, finalPath);
-    res.status(200).json({ message: 'Successfully added to the communal ahhh!', status: 'processed' });
-  } catch (error) {
-    console.error('Error processing upload:', error);
-    if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
-    res.status(500).send('Failed to process the new recording.');
-  }
-});
-
-// ---- Master Drone (Concat Demuxer Version) ----
-app.get('/api/master_drone', async (req, res) => {
-  try {
-    const files = fs.readdirSync(PERSISTENT_STORAGE_PATH)
-      .filter(file => file.endsWith('.webm'))
-      .map(file => {
-        const filePath = path.join(PERSISTENT_STORAGE_PATH, file);
-        const stats = fs.statSync(filePath);
-        return { name: file, path: filePath, time: stats.mtime.getTime(), size: stats.size };
-      })
-      .filter(f => f.size > 0)
-      .sort((a, b) => b.time - a.time);
-
-    if (files.length === 0) return res.status(404).send('The communal ahhh has not started yet!');
-
-    // Single-file fast path
-    if (files.length === 1) {
-      res.setHeader('Content-Type', 'audio/webm');
-      return res.sendFile(files[0].path);
+    if (!req.file) {
+        return res.status(400).send('No audio file uploaded.');
     }
 
-    // Playlist ordering
-    let playlist = [];
-    if (req.query.order === 'special' && files.length > 1) {
-      const mostRecent = files.shift();
-      const others = files;
-      for (let i = others.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [others[i], others[j]] = [others[j], others[i]];
-      }
-      playlist = [mostRecent, ...others].map(f => f.path);
-    } else {
-      playlist = files.reverse().map(f => f.path);
-    }
-
-    // Create temporary concat list
-    const listName = `ffconcat-${Date.now()}-${Math.random() * 9999 | 0}.txt`;
-    const listPath = path.join(os.tmpdir(), listName);
-    const listContent = playlist.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
-    fs.writeFileSync(listPath, listContent);
-
-    res.setHeader('Content-Type', 'audio/webm');
-
-    const cmd = ffmpeg()
-      .input(listPath)
-      .inputOptions(['-f', 'concat', '-safe', '0'])
-      .outputOptions(['-c', 'copy', '-f', 'webm'])
-      .on('start', line => console.log('FFmpeg start:', line))
-      .on('stderr', line => console.log('FFmpeg stderr:', line))
-      .on('error', (err) => {
-        console.error('FFmpeg error:', err.message);
-        if (!res.headersSent) res.status(500).send('Error during audio concatenation.');
-        try { fs.unlinkSync(listPath); } catch {}
-      })
-      .on('end', () => {
-        console.log('FFmpeg finished.');
-        try { fs.unlinkSync(listPath); } catch {}
-      });
-
-    const stream = cmd.pipe(res);
-
-    req.on('close', () => {
-      if (!res.writableEnded) {
-        console.log('Client disconnected. Killing ffmpeg.');
-        try { cmd.kill('SIGKILL'); } catch {}
-      }
-      try { fs.unlinkSync(listPath); } catch {}
-    });
-
-  } catch (err) {
-    console.error('Master drone error:', err);
-    res.status(500).send('Could not generate the communal ahhh.');
-  }
-});
-
-// ---- Reset Endpoint ----
-app.post('/api/reset', (req, res) => {
-  const { secret } = req.body;
-  const RESET_SECRET = process.env.RESET_SECRET || 'lulu';
-
-  if (secret !== RESET_SECRET) return res.status(403).send('Forbidden: Invalid secret key.');
-
-  try {
-    const files = fs.readdirSync(PERSISTENT_STORAGE_PATH);
-    files.forEach(file => fs.unlinkSync(path.join(PERSISTENT_STORAGE_PATH, file)));
-    res.status(200).send('The communal ahhh has been reset.');
-  } catch (err) {
-    console.error('Reset error:', err);
-    res.status(500).send('An error occurred while trying to reset the recordings.');
-  }
-});
-
-// ---- Silence Trimming ----
-function trimAndSave(inputPath, outputPath) {
-  return new Promise((resolve, reject) => {
-    ffmpeg(inputPath)
-      .complexFilter([
-        '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]',
-        '[trim1]areverse[rev1]',
-        '[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]',
-        '[trim2]areverse[out]' ] )
-      .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm'])
-      .save(outputPath)
-      .on('end', async () => {
-        try {
-          if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
-          const stats = await fs.promises.stat(outputPath);
-          if (stats.size === 0) {
-            await fs.promises.unlink(outputPath);
-            return reject(new Error('Recording empty after trimming.'));
-          }
-          resolve();
-        } catch (err) {
-          reject(new Error('Stat/verify failed: ' + err.message));
+    const tempUploadPath = req.file.path; // Path to the file in /tmp/uploads
+    const finalPath = path.join(PERSISTENT_STORAGE_PATH, `ahhh-${Date.now()}.webm`); // Define the final destination path
+    
+    try {
+        // We will process the uploaded file to trim silence, then save it back to its final location.
+        console.log(`Processing file from ${tempUploadPath} to ${finalPath}`);
+        await trimAndSave(tempUploadPath, finalPath);
+        console.log(`File successfully saved to persistent storage: ${finalPath}`);
+        res.status(200).json({ message: 'Successfully added to the communal ahhh!', status: 'processed' });
+    } catch (error) {
+        console.error('Error processing upload:', error);
+        // Clean up the final file if it was partially created on failure.
+        if (fs.existsSync(finalPath)) {
+            fs.unlinkSync(finalPath);
         }
-      })
-      .on('error', (err) => reject(new Error('FFmpeg trimming error: ' + err.message)));
-  });
-}
-
-// ---- Start Server ----
-app.listen(port, () => console.log(`Server running on port ${port}`));
-
-// --- Added validation utilities ---
-// Validate files by probing them with ffmpeg before using them
-async function validateFile(filePath) {
-  return new Promise((resolve) => {
-    ffmpeg.ffprobe(filePath, (err, data) => {
-      if (err || !data || !data.streams || data.streams.length === 0) {
-        console.log("INVALID FILE REMOVED:", filePath);
-        try { fs.unlinkSync(filePath); } catch {}
-        return resolve(false);
-      }
-      resolve(true);
-    });
-  });
-}
-
-// To use:
-// After loading your 'files' array, add:
-// const validated = [];
-// for (const file of files) {
-//   const ok = await validateFile(file.path);
-//   if (ok) validated.push(file);
-// }
-// files = validated;
-
-const UPLOAD_DIR = '/tmp/uploads';
-
-const upload = multer({ dest: UPLOAD_DIR });
-
-// Ensure directories
-if (!fs.existsSync(PERSISTENT_STORAGE_PATH)) fs.mkdirSync(PERSISTENT_STORAGE_PATH, { recursive: true });
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-app.use(cors());
-app.use(express.json());
-
-// ---- Upload Endpoint ----
-app.post('/api/upload', upload.single('audio'), async (req, res) => {
-  if (!req.file) return res.status(400).send('No audio file uploaded.');
-
-  const tempUploadPath = req.file.path;
-  const finalPath = path.join(PERSISTENT_STORAGE_PATH, `ahhh-${Date.now()}.webm`);
-
-  try {
-    await trimAndSave(tempUploadPath, finalPath);
-    res.status(200).json({ message: 'Successfully added to the communal ahhh!', status: 'processed' });
-  } catch (error) {
-    console.error('Error processing upload:', error);
-    if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
-    res.status(500).send('Failed to process the new recording.');
-  }
+        res.status(500).send('Failed to process the new recording.');
+    }
 });
 
-// ---- Master Drone (Concat Demuxer Version) ----
+// --- API Endpoint 2: Serve the Master Drone (For Playback) ---
 app.get('/api/master_drone', async (req, res) => {
-  try {
-    const files = fs.readdirSync(PERSISTENT_STORAGE_PATH)
-      .filter(file => file.endsWith('.webm'))
-      .map(file => {
-        const filePath = path.join(PERSISTENT_STORAGE_PATH, file);
-        const stats = fs.statSync(filePath);
-        return { name: file, path: filePath, time: stats.mtime.getTime(), size: stats.size };
-      })
-      .filter(f => f.size > 0)
-      .sort((a, b) => b.time - a.time);
+    try {
+        const files = fs.readdirSync(PERSISTENT_STORAGE_PATH)
+            .filter(file => file.endsWith('.webm'))
+            .map(file => {
+                const filePath = path.join(PERSISTENT_STORAGE_PATH, file);
+                const stats = fs.statSync(filePath);
+                return {
+                    name: file,
+                    path: filePath,
+                    time: stats.mtime.getTime(),
+                    size: stats.size,
+                };
+            })
+            .filter(file => file.size > 0) // <-- THE CRITICAL FIX: Ignore empty files.
+            .sort((a, b) => b.time - a.time); // Sort descending, newest first
 
-    if (files.length === 0) return res.status(404).send('The communal ahhh has not started yet!');
-
-    // Single-file fast path
-    if (files.length === 1) {
-      res.setHeader('Content-Type', 'audio/webm');
-      return res.sendFile(files[0].path);
-    }
-
-    // Playlist ordering
-    let playlist = [];
-    if (req.query.order === 'special' && files.length > 1) {
-      const mostRecent = files.shift();
-      const others = files;
-      for (let i = others.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [others[i], others[j]] = [others[j], others[i]];
-      }
-      playlist = [mostRecent, ...others].map(f => f.path);
-    } else {
-      playlist = files.reverse().map(f => f.path);
-    }
-
-    // Create temporary concat list
-    const listName = `ffconcat-${Date.now()}-${Math.random() * 9999 | 0}.txt`;
-    const listPath = path.join(os.tmpdir(), listName);
-    const listContent = playlist.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
-    fs.writeFileSync(listPath, listContent);
-
-    res.setHeader('Content-Type', 'audio/webm');
-
-    const cmd = ffmpeg()
-      .input(listPath)
-      .inputOptions(['-f', 'concat', '-safe', '0'])
-     // Force re-encode all concatenated inputs to standardized Opus/webm
-.outputOptions([
-  '-c:a', 'libopus',
-  '-b:a', '160k',
-  '-ar', '48000',
-  '-ac', '2',
-  '-f', 'webm'
-])
-
-      .on('start', line => console.log('FFmpeg start:', line))
-      .on('stderr', line => console.log('FFmpeg stderr:', line))
-      .on('error', (err) => {
-        console.error('FFmpeg error:', err.message);
-        if (!res.headersSent) res.status(500).send('Error during audio concatenation.');
-        try { fs.unlinkSync(listPath); } catch {}
-      })
-      .on('end', () => {
-        console.log('FFmpeg finished.');
-        try { fs.unlinkSync(listPath); } catch {}
-      });
-
-    const stream = cmd.pipe(res);
-
-    req.on('close', () => {
-      if (!res.writableEnded) {
-        console.log('Client disconnected. Killing ffmpeg.');
-        try { cmd.kill('SIGKILL'); } catch {}
-      }
-      try { fs.unlinkSync(listPath); } catch {}
-    });
-
-  } catch (err) {
-    console.error('Master drone error:', err);
-    res.status(500).send('Could not generate the communal ahhh.');
-  }
-});
-
-// ---- Reset Endpoint ----
-app.post('/api/reset', (req, res) => {
-  const { secret } = req.body;
-  const RESET_SECRET = process.env.RESET_SECRET || 'lulu';
-
-  if (secret !== RESET_SECRET) return res.status(403).send('Forbidden: Invalid secret key.');
-
-  try {
-    const files = fs.readdirSync(PERSISTENT_STORAGE_PATH);
-    files.forEach(file => fs.unlinkSync(path.join(PERSISTENT_STORAGE_PATH, file)));
-    res.status(200).send('The communal ahhh has been reset.');
-  } catch (err) {
-    console.error('Reset error:', err);
-    res.status(500).send('An error occurred while trying to reset the recordings.');
-  }
-});
-
-// ---- Silence Trimming ----
-function trimAndSave(inputPath, outputPath) {
-  return new Promise((resolve, reject) => {
-    ffmpeg(inputPath)
-      .complexFilter([
-        '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]',
-        '[trim1]areverse[rev1]',
-        '[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]',
-        '[trim2]areverse[out]' ] )
-      .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm'])
-      .save(outputPath)
-      .on('end', async () => {
-        try {
-          if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
-          const stats = await fs.promises.stat(outputPath);
-          if (stats.size === 0) {
-            await fs.promises.unlink(outputPath);
-            return reject(new Error('Recording empty after trimming.'));
-          }
-          resolve();
-        } catch (err) {
-          reject(new Error('Stat/verify failed: ' + err.message));
+        if (files.length === 0) {
+            return res.status(404).send('The communal ahhh has not started yet!');
         }
-      })
-      .on('error', (err) => reject(new Error('FFmpeg trimming error: ' + err.message)));
-  });
+
+        // --- FIX: Handle the single-file case FIRST to avoid ffmpeg setup errors ---
+        if (files.length === 1) {
+            const singleFilePath = files[0].path;
+            console.log(`Serving single file: ${singleFilePath}`);
+            // Explicitly set the Content-Type header so the browser knows how to play the file.
+            res.setHeader('Content-Type', 'audio/webm');
+            return res.sendFile(singleFilePath);
+        }
+        // -------------------------------------------------------------------------
+
+        let playlist = [];
+        // Handle the `order=special` query from the frontend
+        if (req.query.order === 'special' && files.length > 1) {
+            const mostRecent = files.shift(); // Takes the newest file out
+            const others = files;
+
+            // Fisher-Yates shuffle for the rest of the files
+            for (let i = others.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [others[i], others[j]] = [others[j], others[i]];
+            }
+            playlist = [mostRecent, ...others].map(f => f.path);
+        } else {
+            // Default behavior: play all files concatenated in chronological order
+            playlist = files.reverse().map(f => f.path); // reverse to get oldest first
+        }
+
+        // Use ffmpeg to concatenate the playlist and stream it to the user.
+        const command = ffmpeg();
+        playlist.forEach(file => command.input(file));
+
+        res.setHeader('Content-Type', 'audio/webm');
+
+        command
+            .on('error', (err) => {
+                console.error('FFmpeg streaming error:', err.message);
+                // End the response if an error occurs and headers haven't been sent
+                if (!res.headersSent) {
+                    // Don't try to send a response if headers are already sent
+                    res.status(500).send('Error during audio concatenation.');
+                }
+            })
+            // --- NEW STRATEGY: Use the 'amix' filter for a simpler, more robust mix ---
+            // This mixes all inputs together. 'duration=longest' ensures the output lasts
+            // as long as the longest input, creating the drone effect.
+            .complexFilter(`amix=inputs=${playlist.length}:duration=longest`)
+            // CRITICAL FIX: Explicitly set the output format to a web-playable container.
+            .toFormat('webm')
+            .pipe(res, { end: true });
+    } catch (error) {
+        console.error('Error serving master drone:', error);
+        res.status(500).send('Could not generate the communal ahhh.');
+    }
+});
+
+// --- API Endpoint 3: Reset All Recordings (Secret Endpoint) ---
+app.post('/api/reset', (req, res) => {
+    const { secret } = req.body;
+    const RESET_SECRET_KEY = process.env.RESET_SECRET || 'lulu'; // Use environment variable
+
+    if (secret !== RESET_SECRET_KEY) {
+        return res.status(403).send('Forbidden: Invalid secret key.');
+    }
+
+    try {
+        const files = fs.readdirSync(PERSISTENT_STORAGE_PATH);
+        if (files.length === 0) {
+            return res.status(200).send('Nothing to reset. The communal ahhh was already empty.');
+        }
+
+        files.forEach(file => {
+            fs.unlinkSync(path.join(PERSISTENT_STORAGE_PATH, file));
+        });
+
+        console.log('LOG: All recordings have been deleted by secret key.');
+        res.status(200).send('The communal ahhh has been reset.');
+    } catch (error) {
+        console.error('ERROR: Failed to reset recordings:', error);
+        res.status(500).send('An error occurred while trying to reset the recordings.');
+    }
+});
+
+// --- Audio Processing Helper Function ---
+function trimAndSave(inputPath, outputPath) {
+    return new Promise((resolve, reject) => {
+        try {
+            ffmpeg(inputPath)
+                .complexFilter([
+                    // Trim silence from both start and end of the recording
+                    '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]',
+                    '[trim1]areverse[rev1]',
+                    '[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]',
+                    '[trim2]areverse[out]',
+                ])
+                .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm'])
+                .save(outputPath)
+                .on('end', async () => { // Make the callback async
+                    try {
+                        // After successfully saving, delete the original temporary upload.
+                        if (fs.existsSync(inputPath)) {
+                            fs.unlinkSync(inputPath);
+                        }
+
+                        // Asynchronously get file stats.
+                        const stats = await fs.promises.stat(outputPath);
+                        console.log(`LOG: Trimmed file saved. Size: ${stats.size} bytes.`);
+
+                        if (stats.size === 0) {
+                            // If the file is empty, delete it and reject the promise.
+                            await fs.promises.unlink(outputPath);
+                            return reject(new Error('Recording was empty after trimming silence and was discarded.'));
+                        }
+                        resolve(); // File is valid, resolve the promise.
+                    } catch (statError) {
+                        reject(new Error(`Failed to verify output file: ${statError.message}`));
+                    }
+                })
+                .on('error', (err) => {
+                    // This will now safely reject the promise without crashing.
+                    reject(new Error(`FFmpeg processing error: ${err.message}`));
+                });
+        } catch (error) {
+            // This outer catch will handle any synchronous errors during ffmpeg setup.
+            reject(new Error(`FFmpeg setup failed: ${error.message}`));
+        }
+    });
 }
 
-// ---- Start Server ----
-app.listen(port, () => console.log(`Server running on port ${port}`));
+// --- Start Server ---
+app.listen(port, () => {
+    console.log(`Server listening on port ${port}`);
+});
