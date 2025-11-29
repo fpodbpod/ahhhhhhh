@@ -172,14 +172,14 @@ function trimAndSave(inputPath, outputPath) {
                     if (fs.existsSync(inputPath)) {
                         fs.unlinkSync(inputPath);
                     }
-                    // --- FIX: Check if the output file is empty ---
+                    // Check if the output file is empty (e.g., all silence was trimmed).
                     const stats = fs.statSync(outputPath);
                     if (stats.size === 0) {
-                        // If the file is empty (e.g., all silence was trimmed), reject the promise.
-                        fs.unlinkSync(outputPath); // Clean up the empty file
+                        // If so, delete the empty file and reject the promise so it's not added.
+                        fs.unlinkSync(outputPath);
                         return reject(new Error('Recording was empty after trimming silence.'));
                     }
-                    // ---------------------------------------------
+                    // Otherwise, the file is valid.
                     resolve();
                 })
                 .on('error', (err) => {
