@@ -94,8 +94,9 @@ app.get('/api/master_drone', async (req, res) => {
         if (files.length === 1) {
             const singleFilePath = files[0].path;
             console.log(`Serving single file: ${singleFilePath}`);
-            // Set Content-Type based on the file extension
-            res.setHeader('Content-Type', 'audio/webm');
+            // Dynamically set the Content-Type based on the file's extension for single-file playback.
+            const mimeType = path.extname(singleFilePath) === '.mp4' ? 'audio/mp4' : 'audio/webm';
+            res.setHeader('Content-Type', mimeType);
             return res.sendFile(singleFilePath);
         }
         // -------------------------------------------------------------------------
