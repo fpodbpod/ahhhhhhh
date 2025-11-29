@@ -129,10 +129,10 @@ var recordedChunks = [];
 var audioStream = null; 
 var masterPlaybackAudio = null; // To control the master drone playback
 
-// Your CONFIRMED working Render URL
-const SERVER_URL = 'https://ahhhhhhh-68id.onrender.com/api/upload'; 
-const MASTER_PLAYBACK_URL = 'https://ahhhhhhh-68id.onrender.com/api/master_drone';
-const RESET_URL = 'https://ahhhhhhh-68id.onrender.com/api/reset';
+// Use relative URLs now that the frontend is served from the same domain as the API.
+const SERVER_URL = '/api/upload'; 
+const MASTER_PLAYBACK_URL = '/api/master_drone';
+const RESET_URL = '/api/reset';
 
 // --- 2. Element References ---
 var recordButton; 
