@@ -167,20 +167,26 @@ function trimAndSave(inputPath, outputPath) {
                 ])
                 .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm'])
                 .save(outputPath)
-                .on('end', () => {
-                    // After successfully saving the trimmed file, delete the original temporary upload.
-                    if (fs.existsSync(inputPath)) {
-                        fs.unlinkSync(inputPath);
+                .on('end', async () => { // Make the callback async
+                    try {
+                        // After successfully saving, delete the original temporary upload.
+                        if (fs.existsSync(inputPath)) {
+                            fs.unlinkSync(inputPath);
+                        }
+
+                        // Asynchronously get file stats.
+                        const stats = await fs.promises.stat(outputPath);
+                        console.log(`LOG: Trimmed file saved. Size: ${stats.size} bytes.`);
+
+                        if (stats.size === 0) {
+                            // If the file is empty, delete it and reject the promise.
+                            await fs.promises.unlink(outputPath);
+                            return reject(new Error('Recording was empty after trimming silence and was discarded.'));
+                        }
+                        resolve(); // File is valid, resolve the promise.
+                    } catch (statError) {
+                        reject(new Error(`Failed to verify output file: ${statError.message}`));
                     }
-                    // Check if the output file is empty (e.g., all silence was trimmed).
-                    const stats = fs.statSync(outputPath);
-                    if (stats.size === 0) {
-                        // If so, delete the empty file and reject the promise so it's not added.
-                        fs.unlinkSync(outputPath);
-                        return reject(new Error('Recording was empty after trimming silence.'));
-                    }
-                    // Otherwise, the file is valid.
-                    resolve();
                 })
                 .on('error', (err) => {
                     // This will now safely reject the promise without crashing.
