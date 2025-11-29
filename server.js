@@ -92,7 +92,15 @@ app.get('/api/master_drone', async (req, res) => {
     const cmd = ffmpeg()
       .input(listPath)
       .inputOptions(['-f', 'concat', '-safe', '0'])
-      .outputOptions(['-c', 'copy', '-f', 'webm'])
+     // Force re-encode all concatenated inputs to standardized Opus/webm
+.outputOptions([
+  '-c:a', 'libopus',
+  '-b:a', '160k',
+  '-ar', '48000',
+  '-ac', '2',
+  '-f', 'webm'
+])
+
       .on('start', line => console.log('FFmpeg start:', line))
       .on('stderr', line => console.log('FFmpeg stderr:', line))
       .on('error', (err) => {
