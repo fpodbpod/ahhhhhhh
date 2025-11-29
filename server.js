@@ -1,322 +1,231 @@
-<div id="sound-art-app" style="text-align: center;">
-    <h3>The Communal "Ahhh" Project</h3>
-    <button id="recordButton">Start Recording</button>
-    <button class="hidden-control" disabled="" id="stopButton">Stop Recording</button>
-    <p id="status">Ready to record.</p>
-    <div>
-        <button class="hidden-control" id="previewButton">Preview Your "Ahhh"</button>
-        <button class="hidden-control" disabled="" id="submitButton">SUBMIT to the Collective Ahhh</button>
-        <button class="hidden-control" disabled="" id="discardButton">Discard &amp; Re-Record</button>
-    </div>
-    <!-- Simplified Playback Mode Toggle -->
-    <div class="toggle-row" style="justify-content: center; margin-top: 15px; gap: 10px;">
-        <span>Simultaneous Playback</span>
-        <label class="toggle-switch"><input type="checkbox" id="playback_mode"><span class="toggle-slider"></span></label>
-    </div>
+const express = require('express');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+const cors = require('cors'); // Import the cors package
+const ffmpeg = require('fluent-ffmpeg');
 
-    <button id="playChainButton" style="width: 50%; padding: 15px; margin-top: 15px; font-size: 1.2em;">Play the Endless Ahhh</button>
-    <button id="unfreezeButton" style="display: block; margin: 10px auto;">Unfreeze Interface</button>
-    <div style="position: fixed; bottom: 0; left: 0; width: 100%; background-color: #f0f0f0; padding: 10px; text-align: center; border-top: 1px solid #ccc;">
-        <input type="password" id="secretKeyInput" placeholder="secret key">
-        <button id="resetButton" title="Reset All Ahhhs">X</button>
-    </div>
-</div>
-<script>
-// --- 1. Global Variables (CHANGED TO VAR TO PREVENT DUPLICATE DECLARATION ERROR) ---
-var mediaRecorder = null; 
-var recordedChunks = [];
-var audioStream = null; 
-var masterPlaybackAudio = null; // To control the master drone playback
+const app = express();
+// Render assigns the port dynamically, so we use process.env.PORT
+const port = process.env.PORT || 3000; 
 
-// Your CONFIRMED working Render URL
-const SERVER_URL = 'https://ahhhhhhh-68id.onrender.com/api/upload'; 
-const MASTER_PLAYBACK_URL = 'https://ahhhhhhh-68id.onrender.com/api/master_drone';
-const RESET_URL = 'https://ahhhhhhh-68id.onrender.com/api/reset';
+// --- Configuration ---
+// Use the persistent disk path you created on Render.
+const PERSISTENT_STORAGE_PATH = '/var/data/ahhhhhhh_files'; // Final destination for processed files.
+const UPLOAD_DIR = '/tmp/uploads'; // Temporary location for initial uploads.
 
-// --- 2. Element References ---
-var recordButton; 
-var stopButton; 
-var unfreezeButton;
-var previewButton; 
-var submitButton; 
-var discardButton; 
-var playButton; 
-var statusText; 
-var secretKeyInput;
-var resetButton;
+// Configure multer to save files to the temporary upload directory.
+const upload = multer({ dest: UPLOAD_DIR });
 
-// --- 3. Function to Initialize the Application (Runs AFTER Page Loads) ---
-function waitForAppAndInitialize() {
-    const appContainer = document.getElementById('sound-art-app');
-    if (appContainer) {
-        console.log("LOG: App container found. Initializing listeners.");
-        // --- Assign elements ---
-        recordButton = document.getElementById('recordButton'); 
-        stopButton = document.getElementById('stopButton'); 
-        unfreezeButton = document.getElementById('unfreezeButton');
-        previewButton = document.getElementById('previewButton');
-        submitButton = document.getElementById('submitButton');
-        discardButton = document.getElementById('discardButton');
-        playButton = document.getElementById('playChainButton');
-        statusText = document.getElementById('status');
-        secretKeyInput = document.getElementById('secretKeyInput');
-        resetButton = document.getElementById('resetButton');
-
-        // --- Attach listeners ---
-        if (recordButton) recordButton.addEventListener('click', startRecording);
-        if (stopButton) stopButton.addEventListener('click', stopRecording);
-        if (submitButton) submitButton.addEventListener('click', submitAhhh);
-        if (discardButton) discardButton.addEventListener('click', discardAhhh);
-        if (playButton) playButton.addEventListener('click', playAhhh);
-        if (unfreezeButton) unfreezeButton.addEventListener('click', unfreezeInterface);
-        if (previewButton) previewButton.addEventListener('click', previewAhhh);
-        if (resetButton) resetButton.addEventListener('click', resetAhhs);
-
-        if (statusText) statusText.textContent = "Press 'Start Recording' to request microphone access. Recording will begin after 3 second countdown.";
-    } else {
-        console.log("LOG: App container not found yet. Retrying in 100ms.");
-        setTimeout(waitForAppAndInitialize, 100); // Retry after a short delay
-    }
+// Ensure both directories exist on server startup.
+if (!fs.existsSync(PERSISTENT_STORAGE_PATH)) {
+    fs.mkdirSync(PERSISTENT_STORAGE_PATH, { recursive: true });
+}
+if (!fs.existsSync(UPLOAD_DIR)) {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-// Start the initialization check.
-waitForAppAndInitialize();
+// Use the cors middleware to handle all CORS-related headers automatically.
+// This is more robust than setting headers manually.
+app.use(cors());
 
-// --- 4. Main Application Functions ---
+// --- NEW: Serve static files from a 'public' directory ---
+// This tells Express that any files in the 'public' folder should be accessible to the web.
+app.use(express.static(path.join(__dirname, 'public')));
 
-// This function handles getting the mic access when the button is clicked
-async function getMicrophoneAccess() {
-    // If the stream from a previous session is still active, we can reuse it.
-    // However, the MediaRecorder MUST be created fresh for each new recording.
-    if (audioStream && audioStream.active) {
-        console.log("LOG: Reusing existing microphone stream.");
-    } else {
-        if (statusText) statusText.textContent = "Requesting microphone access...";
-        console.log("LOG: Requesting new microphone access...");
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            audioStream = stream;
-        } catch (err) {
-            if (statusText) statusText.textContent = "ERROR: Microphone permission denied. Use Unfreeze Failsafe.";
-            console.error('ERROR: Microphone access failed:', err);
-            return null; // Return null on failure
+// This ensures that when someone visits your site's root URL, they get your app.
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Middleware to parse JSON bodies (needed for the new reset endpoint)
+app.use(express.json());
+
+// --- API Endpoint 1: Upload New Recording ---
+app.post('/api/upload', upload.single('audio'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).send('No audio file uploaded.');
+    }
+
+    const tempUploadPath = req.file.path; // Path to the file in /tmp/uploads
+    const finalPath = path.join(PERSISTENT_STORAGE_PATH, `ahhh-${Date.now()}.webm`); // Define the final destination path
+    
+    try {
+        // We will process the uploaded file to trim silence, then save it back to its final location.
+        console.log(`Processing file from ${tempUploadPath} to ${finalPath}`);
+        await trimAndSave(tempUploadPath, finalPath);
+        console.log(`File successfully saved to persistent storage: ${finalPath}`);
+        res.status(200).json({ message: 'Successfully added to the communal ahhh!', status: 'processed' });
+    } catch (error) {
+        console.error('Error processing upload:', error);
+        // Clean up the final file if it was partially created on failure.
+        if (fs.existsSync(finalPath)) {
+            fs.unlinkSync(finalPath);
         }
+        res.status(500).send('Failed to process the new recording.');
     }
-    mediaRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm' });
-        mediaRecorder.ondataavailable = function(e) {
-            recordedChunks.push(e.data);
-        };
+});
 
-        mediaRecorder.onstop = function() {
-            if (statusText) statusText.textContent = "Recording complete. Ready to preview or submit.";
-            if (previewButton) previewButton.classList.remove('hidden-control');
-            if (submitButton) submitButton.classList.remove('hidden-control');
-            if (discardButton) discardButton.classList.remove('hidden-control');
-            if (recordButton) recordButton.disabled = false;
-            if (submitButton) submitButton.disabled = false;
-            if (discardButton) discardButton.disabled = false;
-        };
-        console.log("LOG: Microphone stream acquired successfully.");
-    return audioStream; // Return the stream to indicate success
-}
+// --- API Endpoint 2: Serve the Master Drone (For Playback) ---
+app.get('/api/master_drone', async (req, res) => {
+    try {
+        const files = fs.readdirSync(PERSISTENT_STORAGE_PATH)
+            .filter(file => file.endsWith('.webm'))
+            .map(file => { // Get stats for each file
+                const filePath = path.join(PERSISTENT_STORAGE_PATH, file);
+                try {
+                    const stats = fs.statSync(filePath);
+                    return { name: file, path: filePath, time: stats.mtime.getTime(), size: stats.size };
+                } catch (e) {
+                    console.error(`Could not stat file ${filePath}, skipping. Error: ${e.message}`);
+                    return null; // If we can't get stats, ignore the file.
+                }
+            })
+            .filter(file => file && file.size > 100) // Filter out nulls and any file smaller than 100 bytes.
+            .sort((a, b) => b.time - a.time); // Sort descending, newest first
 
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
+        console.log(`LOG: Found ${files.length} valid recordings to play.`);
 
-async function startRecording() {
-    // Disable button immediately to prevent multiple clicks
-    if (recordButton) recordButton.disabled = true;
-
-    const stream = await getMicrophoneAccess();
-    
-    if (!stream || !mediaRecorder) {
-        if (statusText) statusText.textContent = "ERROR: Cannot start recording without microphone access.";
-        if (recordButton) recordButton.disabled = false; // Re-enable on failure
-        return;
-    }
-
-    // --- Countdown Logic ---
-    if (statusText) statusText.textContent = "Get ready...";
-    await sleep(1000);
-    if (statusText) statusText.textContent = "3...";
-    await sleep(1000);
-    if (statusText) statusText.textContent = "2...";
-    await sleep(1000);
-    if (statusText) statusText.textContent = "1...";
-    await sleep(1000);
-
-    recordedChunks = [];
-    mediaRecorder.start();
-    if (statusText) statusText.textContent = "Recording... (Max 5 seconds)";
-    if (stopButton) stopButton.disabled = false;
-    
-    // Hide post-recording controls while recording
-    if (submitButton) submitButton.classList.add('hidden-control');
-    if (discardButton) discardButton.classList.add('hidden-control');
-    if (previewButton) previewButton.classList.add('hidden-control');
-
-    // --- Automatically stop recording after 5 seconds ---
-    setTimeout(() => {
-        if (mediaRecorder && mediaRecorder.state === 'recording') {
-            stopRecording();
+        if (files.length === 0) {
+            return res.status(404).send('The communal ahhh has not started yet!');
         }
-    }, 5000); // 5000 milliseconds = 5 seconds
-}
 
-function stopRecording() {
-    if (!mediaRecorder) return;
-    mediaRecorder.stop();
-    if (recordButton) recordButton.disabled = true;
-    if (stopButton) stopButton.disabled = true;
-    if (statusText) statusText.textContent = "Processing recording...";
-}
-
-function submitAhhh() {
-    if (recordedChunks.length === 0) {
-        if (statusText) statusText.textContent = "Error: Nothing recorded to submit.";
-        return;
-    }
-    
-    if (statusText) statusText.textContent = "Submitting to the collective ahhh... please wait.";
-    if (submitButton) submitButton.disabled = true;
-    if (discardButton) discardButton.disabled = true;
-    if (recordButton) recordButton.disabled = true; 
-    
-    const blob = new Blob(recordedChunks, { type: 'audio/webm' });
-    const formData = new FormData();
-    formData.append('audio', blob, 'my-ahhh.webm');
-    
-    fetch(SERVER_URL, {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json()) // Expect a JSON response from the server
-    .then(data => {
-        // Check for the specific success status from our server
-        if (data && data.status === 'processed') {
-            if (statusText) statusText.textContent = "Submission successful! Your ahhh is now part of the drone.";
-            recordedChunks = []; // Clear the recording
-        } else {
-            // If the server gives a success status code but not our expected message, something is wrong.
-            throw new Error(data.message || 'Server response was not as expected.');
+        // --- FIX: Handle the single-file case FIRST to avoid ffmpeg setup errors ---
+        if (files.length === 1) {
+            const singleFilePath = files[0].path;
+            console.log(`Serving single file: ${singleFilePath}`);
+            // Explicitly set the Content-Type header so the browser knows how to play the file.
+            res.setHeader('Content-Type', 'audio/webm');
+            return res.sendFile(singleFilePath);
         }
-    })
-    .catch(error => {
-        // This will now catch network errors, JSON parsing errors, or our thrown error.
-        if (statusText) statusText.textContent = "Submission failed: " + (error.message || error);
-        console.error('Submission Error:', error);
-    })
-    .finally(() => {
-        if (recordButton) recordButton.disabled = false;
-        if (stopButton) stopButton.disabled = true; 
-        if (submitButton) submitButton.classList.add('hidden-control');
-        if (discardButton) discardButton.classList.add('hidden-control');
-        if (previewButton) previewButton.classList.add('hidden-control');
-    });
-}
+        // -------------------------------------------------------------------------
 
-function playAhhh() {
-    if (masterPlaybackAudio && !masterPlaybackAudio.paused) {
-        masterPlaybackAudio.pause();
-        masterPlaybackAudio.currentTime = 0;
-        masterPlaybackAudio = null;
-        if (statusText) statusText.textContent = "Playback stopped. Ready to record. Recording will begin after 3 second countdown.";
-        if (playButton) playButton.textContent = "Play the Endless Ahhh";
-        return;
-    }
+        let playlist = [];
+        // Handle the `order=special` query from the frontend
+        if (req.query.order === 'special' && files.length > 1) {
+            const mostRecent = files.shift(); // Takes the newest file out
+            const others = files;
 
-    if (statusText) statusText.textContent = "Attempting to play the endless ahhh...";
-    if (playButton) playButton.textContent = "Stop the Endless Ahhh";
-
-    // Check the state of the new toggle switch
-    const playbackModeSwitch = document.getElementById('playback_mode');
-    const mode = playbackModeSwitch.checked ? 'simultaneous' : 'sequential';
-
-    // Construct the URL with the special ordering, the chosen mode, and a cache-buster
-    const playbackUrl = `${MASTER_PLAYBACK_URL}?order=special&mode=${mode}&t=${new Date().getTime()}`;
-
-    masterPlaybackAudio = new Audio(playbackUrl);
-    masterPlaybackAudio.loop = true;
-    masterPlaybackAudio.play()
-        .then(() => {
-            if (statusText) statusText.textContent = "Playing the endless ahhh... Click the button again to stop.";
-        })
-        .catch(error => {
-            let errorMessage;
-            // This specific error message often means the server sent an invalid audio source,
-            // which can happen if no recordings exist yet.
-            if (error.message.includes("no supported source was found")) {
-                errorMessage = "Playback failed. Have any 'ahhhs' been submitted yet? The drone needs at least one recording to play.";
+            // Fisher-Yates shuffle for the rest of the files
+            for (let i = others.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [others[i], others[j]] = [others[j], others[i]];
             }
-            if (statusText) statusText.textContent = errorMessage;
-            console.error('Playback Error:', error);
-            if (playButton) playButton.textContent = "Play the Endless Ahhh";
-            masterPlaybackAudio = null;
-        });
-}
-
-function discardAhhh() {
-    recordedChunks = [];
-    if (statusText) statusText.textContent = "Discarded. Ready to record. Recording will begin after 3 second countdown.";
-    
-    if (submitButton) submitButton.classList.add('hidden-control');
-    if (discardButton) discardButton.classList.add('hidden-control');
-    if (previewButton) previewButton.classList.add('hidden-control');
-    if (recordButton) recordButton.disabled = false; 
-}
-
-function unfreezeInterface() {
-    if (recordButton) recordButton.disabled = false;
-    if (stopButton) stopButton.disabled = true;
-    if (submitButton) submitButton.disabled = true;
-    if (discardButton) discardButton.disabled = true;
-    if (statusText) statusText.textContent = "Interface unfrozen. Ready to record. Recording will begin after 3 second countdown.";
-    console.log("Interface unfrozen.");
-}
-
-function previewAhhh() {
-    if (recordedChunks.length === 0) {
-        if (statusText) statusText.textContent = "Nothing to preview.";
-        return;
-    }
-    if (statusText) statusText.textContent = "Previewing your 'Ahhh'...";
-    const blob = new Blob(recordedChunks, { type: 'audio/webm' });
-    const audioUrl = URL.createObjectURL(blob);
-    const audio = new Audio(audioUrl);
-    audio.play()
-        .catch(err => console.error("Preview playback failed:", err));
-    audio.onended = () => {
-        if (statusText) statusText.textContent = "Preview finished. Ready to submit or discard.";
-    };
-}
-
-function resetAhhs() {
-    const secret = secretKeyInput.value;
-    if (!secret) {
-        if (statusText) statusText.textContent = "Please enter the secret key to reset.";
-        return;
-    }
-
-    if (statusText) statusText.textContent = "Attempting to reset all recordings...";
-
-    fetch(RESET_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ secret: secret }),
-    })
-    .then(response => response.text().then(text => {
-        if (!response.ok) {
-            throw new Error(text || 'Failed with status: ' + response.status);
+            playlist = [mostRecent, ...others].map(f => f.path);
+        } else {
+            // Default behavior: play all files concatenated in chronological order
+            playlist = files.reverse().map(f => f.path); // reverse to get oldest first
         }
-        if (statusText) statusText.textContent = "Reset successful: " + text;
-        if (secretKeyInput) secretKeyInput.value = ''; // Clear the input
-    }))
-    .catch(error => {
-        if (statusText) statusText.textContent = "Reset failed: " + error.message;
-        console.error('Reset Error:', error);
+
+        // Use ffmpeg to concatenate the playlist and stream it to the user.
+        const command = ffmpeg();
+        playlist.forEach(file => command.input(file));
+
+        res.setHeader('Content-Type', 'audio/webm');
+
+        command
+            .on('error', (err) => {
+                console.error('FFmpeg streaming error:', err.message);
+                // End the response if an error occurs and headers haven't been sent
+                if (!res.headersSent) {
+                    // Don't try to send a response if headers are already sent
+                    res.status(500).send('Error during audio concatenation.');
+                }
+            })
+
+        // --- Playback Mode Switching Logic ---
+        if (req.query.mode === 'sequential') {
+            // SEQUENTIAL MODE: Use the 'concat' filter to play files one after another.
+            console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
+            command.complexFilter(`concat=n=${playlist.length}:v=0:a=1`);
+        } else {
+            // SIMULTANEOUS (LAYERED) MODE: Use the 'amix' filter to play all at once.
+            console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
+            command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
+        }
+
+        command.toFormat('webm').pipe(res, { end: true });
+
+    } catch (error) {
+        console.error('Error serving master drone:', error);
+        res.status(500).send('Could not generate the communal ahhh.');
+    }
+});
+
+// --- API Endpoint 3: Reset All Recordings (Secret Endpoint) ---
+app.post('/api/reset', (req, res) => {
+    const { secret } = req.body;
+    const RESET_SECRET_KEY = process.env.RESET_SECRET || 'lulu'; // Use environment variable
+
+    if (secret !== RESET_SECRET_KEY) {
+        return res.status(403).send('Forbidden: Invalid secret key.');
+    }
+
+    try {
+        const files = fs.readdirSync(PERSISTENT_STORAGE_PATH);
+        if (files.length === 0) {
+            return res.status(200).send('Nothing to reset. The communal ahhh was already empty.');
+        }
+
+        files.forEach(file => {
+            fs.unlinkSync(path.join(PERSISTENT_STORAGE_PATH, file));
+        });
+
+        console.log('LOG: All recordings have been deleted by secret key.');
+        res.status(200).send('The communal ahhh has been reset.');
+    } catch (error) {
+        console.error('ERROR: Failed to reset recordings:', error);
+        res.status(500).send('An error occurred while trying to reset the recordings.');
+    }
+});
+
+// --- Audio Processing Helper Function ---
+function trimAndSave(inputPath, outputPath) {
+    return new Promise((resolve, reject) => {
+        try {
+            ffmpeg(inputPath)
+                .complexFilter([
+                    // Trim silence from both start and end of the recording
+                    '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]',
+                    '[trim1]areverse[rev1]',
+                    '[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]',
+                    '[trim2]areverse[out]',
+                ])
+                .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm'])
+                .save(outputPath)
+                .on('end', async () => { // Make the callback async
+                    try {
+                        // After successfully saving, delete the original temporary upload.
+                        if (fs.existsSync(inputPath)) {
+                            fs.unlinkSync(inputPath);
+                        }
+
+                        // Asynchronously get file stats.
+                        const stats = await fs.promises.stat(outputPath);
+                        console.log(`LOG: Trimmed file saved. Size: ${stats.size} bytes.`);
+
+                        if (stats.size === 0) {
+                            // If the file is empty, delete it and reject the promise.
+                            await fs.promises.unlink(outputPath);
+                            return reject(new Error('Recording was empty after trimming silence and was discarded.'));
+                        }
+                        resolve(); // File is valid, resolve the promise.
+                    } catch (statError) {
+                        reject(new Error(`Failed to verify output file: ${statError.message}`));
+                    }
+                })
+                .on('error', (err) => {
+                    // This will now safely reject the promise without crashing.
+                    reject(new Error(`FFmpeg processing error: ${err.message}`));
+                });
+        } catch (error) {
+            // This outer catch will handle any synchronous errors during ffmpeg setup.
+            reject(new Error(`FFmpeg setup failed: ${error.message}`));
+        }
     });
 }
-</script>
+
+// --- Start Server ---
+app.listen(port, () => {
+    console.log(`Server listening on port ${port}`);
+});
