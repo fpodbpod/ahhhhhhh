@@ -282,7 +282,7 @@ async function startRecording() {
     
     // The stream and recorder should already exist from getMicrophoneAccess
     if (!mediaRecorder || mediaRecorder.state !== 'inactive') {
-        if (statusText) statusText.textContent = "ERROR: Recorder not ready. Please refresh.";
+        if (statusText) statusText.textContent = "Please enable microphone to record.";
         if (recordButton) recordButton.disabled = false; // Re-enable on failure
         return;
     }
@@ -323,6 +323,9 @@ function stopRecording() {
     if (recordButton) recordButton.disabled = true;
     if (stopButton) stopButton.disabled = true;
     if (statusText) statusText.textContent = "Processing recording...";
+    // --- DEFINITIVE FIX for subsequent recordings ---
+    // Destroy the MediaRecorder instance after it's used.
+    mediaRecorder = null;
 }
 
 function submitAhhh() {
@@ -336,17 +339,9 @@ function submitAhhh() {
     if (discardButton) discardButton.disabled = true;
     if (recordButton) recordButton.disabled = true; 
     
-    let blob;
-    try {
-        // First, try the most specific and correct method.
-        const blobOptions = { type: recordedChunks[0].type };
-        blob = new Blob(recordedChunks, blobOptions);
-    } catch (e) {
-        // If the specific method fails (a known Safari bug), fall back to the simpler method.
-        console.warn("Blob creation with specific type failed, falling back to inferred type. Error:", e.message);
-        blob = new Blob(recordedChunks);
-    }
-
+    // --- DEFINITIVE BLOB FIX ---
+    // Use the globally determined supportedMimeType. This is the most reliable way to create a valid Blob.
+    const blob = new Blob(recordedChunks, { type: supportedMimeType });
     const formData = new FormData();
     formData.append('audio', blob, `my-ahhh${fileExtension}`);
     
@@ -445,15 +440,8 @@ function previewAhhh() {
         return;
     }
     if (statusText) statusText.textContent = "Previewing your 'Ahhh'...";
-    // Use the same robust blob creation for previews.
-    let blob;
-    try {
-        const blobOptions = { type: recordedChunks[0].type };
-        blob = new Blob(recordedChunks, blobOptions);
-    } catch (e) {
-        blob = new Blob(recordedChunks);
-    }
-
+    // Use the same definitive fix for the preview Blob.
+    const blob = new Blob(recordedChunks, { type: supportedMimeType });
     const audioUrl = URL.createObjectURL(blob);
     const audio = new Audio(audioUrl);
     audio.play()
