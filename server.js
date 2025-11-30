@@ -67,7 +67,7 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
 });
 
 // --- API Endpoint 2: Serve the Master Drone (For Playback) ---
-app.get('/api/master_drone', async (req, res) => {
+app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callbacks
     try {
         const files = fs.readdirSync(PERSISTENT_STORAGE_PATH)
             .filter(file => file.endsWith('.webm') || file.endsWith('.mp4'))
@@ -84,78 +84,75 @@ app.get('/api/master_drone', async (req, res) => {
             .filter(file => file && file.size > 100) // Filter out nulls and any file smaller than 100 bytes.
             .sort((a, b) => b.time - a.time); // Sort descending, newest first
 
-        console.log(`LOG: Found ${files.length} valid recordings to play.`);
+        // --- NEW: Validate each file with ffprobe to ensure it has an audio stream ---
+        const validationPromises = files.map(file => {
+            return new Promise((resolve) => {
+                ffmpeg.ffprobe(file.path, (err, metadata) => {
+                    // Check if there's an error OR if the streams array has an audio stream.
+                    if (err || !metadata.streams.some(s => s.codec_type === 'audio')) {
+                        console.warn(`WARN: Skipping invalid/corrupt file: ${file.name}`);
+                        resolve(null); // Resolve with null if invalid
+                    } else {
+                        resolve(file); // Resolve with the file object if valid
+                    }
+                });
+            });
+        });
 
-        if (files.length === 0) {
-            return res.status(404).send('The communal ahhh has not started yet!');
-        }
+        Promise.all(validationPromises).then(validatedFiles => {
+            const playlistFiles = validatedFiles.filter(Boolean); // Filter out any nulls (invalid files)
 
-        // --- FIX: Handle the single-file case FIRST to avoid ffmpeg setup errors ---
-        if (files.length === 1) {
-            const singleFilePath = files[0].path;
-            console.log(`Serving single file: ${singleFilePath}`);
-            // Dynamically set the Content-Type based on the file's extension for single-file playback.
-            const mimeType = path.extname(singleFilePath) === '.mp4' ? 'audio/mp4' : 'audio/webm';
-            res.setHeader('Content-Type', mimeType);
-            return res.sendFile(singleFilePath);
-        }
-        // -------------------------------------------------------------------------
+            console.log(`LOG: Found ${playlistFiles.length} valid recordings to play.`);
 
-        let playlist = [];
-        // Handle the `order=special` query from the frontend
-        if (req.query.order === 'special' && files.length > 1) {
-            const mostRecent = files.shift(); // Takes the newest file out
-            const others = files;
-
-            // Fisher-Yates shuffle for the rest of the files
-            for (let i = others.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [others[i], others[j]] = [others[j], others[i]];
+            if (playlistFiles.length === 0) {
+                return res.status(404).send('The communal ahhh has not started yet!');
             }
-            playlist = [mostRecent, ...others].map(f => f.path);
-        } else {
-            // Default behavior: play all files concatenated in chronological order
-            playlist = files.reverse().map(f => f.path); // reverse to get oldest first
-        }
 
-        // Use ffmpeg to concatenate the playlist and stream it to the user.
-        const command = ffmpeg();
-        playlist.forEach(file => command.input(file));
+            if (playlistFiles.length === 1) {
+                const singleFilePath = playlistFiles[0].path;
+                console.log(`Serving single file: ${singleFilePath}`);
+                const mimeType = path.extname(singleFilePath) === '.mp4' ? 'audio/mp4' : 'audio/webm';
+                res.setHeader('Content-Type', mimeType);
+                return res.sendFile(singleFilePath);
+            }
 
-        // --- UNIVERSAL COMPATIBILITY FIX ---
-        // Always output as MP4 (with AAC codec), as this is universally supported, especially on iOS.
-        res.setHeader('Content-Type', 'audio/mp4'); 
+            let playlist = [];
+            if (req.query.order === 'special') {
+                const mostRecent = playlistFiles.shift();
+                const others = playlistFiles;
+                for (let i = others.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [others[i], others[j]] = [others[j], others[i]];
+                }
+                playlist = [mostRecent, ...others].map(f => f.path);
+            } else {
+                playlist = playlistFiles.reverse().map(f => f.path);
+            }
 
-        command
-            .on('error', (err) => {
+            const command = ffmpeg();
+            playlist.forEach(file => command.input(file));
+
+            res.setHeader('Content-Type', 'audio/mp4');
+
+            command.on('error', (err) => {
                 console.error('FFmpeg streaming error:', err.message);
-                // End the response if an error occurs and headers haven't been sent
                 if (!res.headersSent) {
-                    // Don't try to send a response if headers are already sent
                     res.status(500).send('Error during audio concatenation.');
                 }
-            })
+            });
 
-        // --- Playback Mode Switching Logic ---
-        if (req.query.mode === 'sequential') {
-            // SEQUENTIAL MODE: Use the 'concat' filter to play files one after another.
-            console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
-            // Build an explicit filter chain for concat: [0:a][1:a]...concat=n=X:v=0:a=1[a]
-            const inputs = playlist.map((_, index) => `[${index}:a]`).join('');
-            const filter = `${inputs}concat=n=${playlist.length}:v=0:a=1[a]`;
-            command.complexFilter(filter);
-            command.outputOptions('-map', '[a]'); // Map the final concatenated stream to the output
-        } else {
-            // SIMULTANEOUS (LAYERED) MODE: Use the 'amix' filter to play all at once.
-            console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
-            command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
-        }
+            if (req.query.mode === 'sequential') {
+                console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
+                const inputs = playlist.map((_, index) => `[${index}:a]`).join('');
+                const filter = `${inputs}concat=n=${playlist.length}:v=0:a=1[a]`;
+                command.complexFilter(filter).outputOptions('-map', '[a]');
+            } else {
+                console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
+                command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
+            }
 
-        // Set the output format to MP4 and use the libfdk_aac codec for high quality and compatibility.
-        command
-            .toFormat('mp4')
-            .pipe(res, { end: true });
-
+            command.toFormat('mp4').pipe(res, { end: true });
+        });
     } catch (error) {
         console.error('Error serving master drone:', error);
         res.status(500).send('Could not generate the communal ahhh.');
@@ -205,7 +202,7 @@ function trimAndSave(inputPath, outputPath) {
                 // Use libopus for .webm files and libfdk_aac for .mp4 files.
                 .outputOptions(path.extname(outputPath) === '.webm' 
                     ? ['-map [out]', '-c:a libopus', '-b:a 160k'] 
-                    : ['-map [out]', '-c:a aac', '-b:a 160k'])
+                    : ['-map [out]', '-c:a aac', '-b:a 160k']) // Use standard 'aac' encoder
                 .save(outputPath)
                 .on('end', async () => { // Make the callback async
                     try {
