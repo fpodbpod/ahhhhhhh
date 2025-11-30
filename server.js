@@ -69,106 +69,98 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
 });
 
 // --- API Endpoint 2: Serve the Master Drone (For Playback) ---
-app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callbacks
+app.get('/api/master_drone', async (req, res) => { // Make the entire function async
     try {
-        const files = fs.readdirSync(PERSISTENT_STORAGE_PATH)
+        const initialFiles = fs.readdirSync(PERSISTENT_STORAGE_PATH)
             .filter(file => file.endsWith('.webm') || file.endsWith('.mp4'))
-            .map(file => { // Get stats for each file
+            .map(file => {
                 const filePath = path.join(PERSISTENT_STORAGE_PATH, file);
                 try {
                     const stats = fs.statSync(filePath);
                     return { name: file, path: filePath, time: stats.mtime.getTime(), size: stats.size };
                 } catch (e) {
                     console.error(`Could not stat file ${filePath}, skipping. Error: ${e.message}`);
-                    return null; // If we can't get stats, ignore the file.
+                    return null;
                 }
             })
-            .filter(file => file && file.size > 100) // Filter out nulls and any file smaller than 100 bytes.
-            .sort((a, b) => b.time - a.time); // Sort descending, newest first
+            .filter(file => file && file.size > 400) // Use the stricter 400-byte filter
+            .sort((a, b) => b.time - a.time);
 
-        // --- NEW: Validate each file with ffprobe to ensure it has an audio stream ---
-        const validationPromises = files.map(file => {
+        // --- DEFINITIVE FIX: Use async/await to wait for validation ---
+        const validationPromises = initialFiles.map(file => {
             return new Promise((resolve) => {
                 ffmpeg.ffprobe(file.path, (err, metadata) => {
-                    // Check if there's an error OR if the streams array has an audio stream.
                     if (err || !metadata.streams.some(s => s.codec_type === 'audio')) {
                         console.warn(`WARN: Skipping invalid/corrupt file: ${file.name}`);
-                        resolve(null); // Resolve with null if invalid
+                        resolve(null);
                     } else {
-                        resolve(file); // Resolve with the file object if valid
+                        resolve(file);
                     }
                 });
             });
         });
 
-        Promise.all(validationPromises).then(validatedFiles => {
-            const playlistFiles = validatedFiles.filter(Boolean); // Filter out any nulls (invalid files)
+        const validatedFiles = await Promise.all(validationPromises);
+        const playlistFiles = validatedFiles.filter(Boolean); // This now contains only valid files.
 
-            console.log(`LOG: Found ${playlistFiles.length} valid recordings to play.`);
+        console.log(`LOG: Found ${playlistFiles.length} valid recordings to play.`);
 
-            if (playlistFiles.length === 0) {
-                return res.status(404).send('The communal ahhh has not started yet!');
+        if (playlistFiles.length === 0) {
+            return res.status(404).send('The communal ahhh has not started yet!');
+        }
+
+        if (playlistFiles.length === 1) {
+            const singleFilePath = playlistFiles[0].path;
+            console.log(`Serving single file: ${singleFilePath}`);
+            const mimeType = path.extname(singleFilePath) === '.mp4' ? 'audio/mp4' : 'audio/webm';
+            res.setHeader('Content-Type', mimeType);
+            return res.sendFile(singleFilePath);
+        }
+
+        let playlist = [];
+        if (req.query.order === 'special') {
+            const mostRecent = playlistFiles.shift();
+            const others = playlistFiles;
+            for (let i = others.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [others[i], others[j]] = [others[j], others[i]];
             }
+            playlist = [mostRecent, ...others].map(f => f.path);
+        } else {
+            playlist = playlistFiles.reverse().map(f => f.path);
+        }
 
-            if (playlistFiles.length === 1) {
-                const singleFilePath = playlistFiles[0].path;
-                console.log(`Serving single file: ${singleFilePath}`);
-                const mimeType = path.extname(singleFilePath) === '.mp4' ? 'audio/mp4' : 'audio/webm';
-                res.setHeader('Content-Type', mimeType);
-                return res.sendFile(singleFilePath);
+        const command = ffmpeg();
+        playlist.forEach(file => command.input(file));
+
+        res.setHeader('Content-Type', 'audio/webm');
+
+        command.on('error', (err) => {
+            console.error('FFmpeg streaming error:', err.message);
+            if (!res.headersSent) {
+                res.status(500).send('Error during audio concatenation.');
             }
-
-            let playlist = [];
-            if (req.query.order === 'special') {
-                const mostRecent = playlistFiles.shift();
-                const others = playlistFiles;
-                for (let i = others.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [others[i], others[j]] = [others[j], others[i]];
-                }
-                playlist = [mostRecent, ...others].map(f => f.path);
-            } else {
-                playlist = playlistFiles.reverse().map(f => f.path);
-            }
-
-            const command = ffmpeg();
-            playlist.forEach(file => command.input(file));
-
-            // --- UNIFIED FORMAT PIPELINE: Always stream WebM. ---
-            // The files on disk are WebM, so we will stream WebM.
-            // This avoids the on-the-fly Opus -> AAC conversion that is failing.
-            res.setHeader('Content-Type', 'audio/webm');
-
-            command.on('error', (err) => {
-                console.error('FFmpeg streaming error:', err.message);
-                if (!res.headersSent) {
-                    res.status(500).send('Error during audio concatenation.');
-                }
-            });
-
-            if (req.query.mode === 'sequential') {
-                console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
-                // --- STABILITY FIX: Use the simpler 'concat' filter instead of 'acrossfade' ---
-                const inputs = playlist.map((_, index) => `[${index}:a]`).join('');
-                const filter = `${inputs}concat=n=${playlist.length}:v=0:a=1[a]`;
-                command.complexFilter(filter).outputOptions('-map', '[a]');
-            } else {
-                console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
-                try {
-                    command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
-                } catch (e) {
-                    console.error("AMIX FILTER FAILED:", e);
-                    return res.status(500).send('Failed to build audio mix filter.');
-                }
-            }
-
-            command
-                .outputOptions([
-                    '-movflags faststart', // Optimizes the stream for web playback
-                    '-b:a 192k'            // Set an explicit audio bitrate for compatibility
-                ])
-                .toFormat('webm').pipe(res, { end: true });
         });
+
+        if (req.query.mode === 'sequential') {
+            console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
+            const inputs = playlist.map((_, index) => `[${index}:a]`).join('');
+            const filter = `${inputs}concat=n=${playlist.length}:v=0:a=1[a]`;
+            command.complexFilter(filter).outputOptions('-map', '[a]');
+        } else {
+            console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
+            try {
+                command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
+            } catch (e) {
+                console.error("AMIX FILTER FAILED:", e);
+                return res.status(500).send('Failed to build audio mix filter.');
+            }
+        }
+
+        command
+            .outputOptions(['-movflags faststart', '-b:a 192k'])
+            .toFormat('webm').pipe(res, { end: true });
+            
     } catch (error) {
         console.error('Error serving master drone:', error);
         res.status(500).send('Could not generate the communal ahhh.');
