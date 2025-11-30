@@ -48,9 +48,9 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
     }
 
     const tempUploadPath = req.file.path; // Path to the file in /tmp/uploads
-    // --- UNIFIED FORMAT STRATEGY: Always save as .webm ---
-    // This ensures all files on disk are in a consistent, reliable format.
-    const finalPath = path.join(PERSISTENT_STORAGE_PATH, `ahhh-${Date.now()}.webm`);
+    // --- NEW UNIFIED FORMAT STRATEGY: Always save as .mp4 ---
+    // This ensures all files on disk are in the universally compatible MP4/AAC format.
+    const finalPath = path.join(PERSISTENT_STORAGE_PATH, `ahhh-${Date.now()}.mp4`);
     
     try {
         // We will process the uploaded file to trim silence, then save it back to its final location.
@@ -72,7 +72,7 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
 app.get('/api/master_drone', async (req, res) => { // Make the entire function async
     try {
         const initialFiles = fs.readdirSync(PERSISTENT_STORAGE_PATH)
-            .filter(file => file.endsWith('.webm') || file.endsWith('.mp4'))
+            .filter(file => file.endsWith('.mp4')) // We only look for .mp4 files now
             .map(file => {
                 const filePath = path.join(PERSISTENT_STORAGE_PATH, file);
                 try {
@@ -201,18 +201,13 @@ function trimAndSave(inputPath, outputPath, req) { // Add 'req' as a parameter
     return new Promise((resolve, reject) => {
         try {
             const command = ffmpeg(inputPath);
-
-            // --- DEFINITIVE STABILITY FIX ---
-            // The silenceremove filter is unstable with AAC audio from iPhones.
-            // We check the ORIGINAL filename extension from the upload.
-            if (path.extname(req.file.originalname).toLowerCase() === '.mp4') {
-                console.log('LOG: MP4 detected. Performing clean conversion to WebM without silence removal to ensure stability.');
-                command.outputOptions(['-c:a libopus', '-b:a 160k', '-f webm']);
-            } else {
-                console.log('LOG: WebM detected. Applying silence removal.');
-                command.complexFilter(['[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]','[trim1]areverse[rev1]','[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]','[trim2]areverse[out]']).outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm']);
-            }
-
+            
+            // --- NEW STRATEGY: Convert ALL uploads to a standard MP4/AAC format. ---
+            // This includes silence removal, which is more stable when the final output is AAC.
+            command.complexFilter([
+                '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]','[trim1]areverse[rev1]','[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]','[trim2]areverse[out]',
+            ]).outputOptions(['-map [out]', '-c:a aac', '-b:a 192k']);
+            
             command.save(outputPath)
             .on('end', async () => {
                 try {
