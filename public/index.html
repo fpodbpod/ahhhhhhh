@@ -270,10 +270,6 @@ async function startRecording() {
         return;
     }
 
-    // --- START RECORDING IMMEDIATELY ---
-    recordedChunks = [];
-    mediaRecorder.start();
-    if (stopButton) stopButton.disabled = false;
 
     // --- Countdown Logic ---
     if (statusText) statusText.textContent = "Get ready...";
@@ -285,14 +281,18 @@ async function startRecording() {
     if (statusText) statusText.textContent = "1...";
     await sleep(1000);
 
+    // --- START RECORDING AFTER COUNTDOWN ---
+    recordedChunks = [];
+    mediaRecorder.start();
+    if (stopButton) stopButton.disabled = false;
     if (statusText) statusText.textContent = "Recording... (Max 5 seconds)";
-    
+
     // Hide post-recording controls while recording
     if (submitButton) submitButton.classList.add('hidden-control');
     if (discardButton) discardButton.classList.add('hidden-control');
     if (previewButton) previewButton.classList.add('hidden-control');
 
-    // --- Automatically stop recording after 5 seconds ---
+    // --- Automatically stop recording after 5 seconds FROM NOW ---
     setTimeout(() => {
         if (mediaRecorder && mediaRecorder.state === 'recording') {
             stopRecording();
@@ -356,7 +356,6 @@ function playAhhh() {
     if (masterPlaybackAudio && !masterPlaybackAudio.paused) {
         masterPlaybackAudio.pause();
         masterPlaybackAudio.currentTime = 0;
-        masterPlaybackAudio = null;
         if (statusText) statusText.textContent = "Playback stopped. Ready to record. Recording will begin after 3 second countdown.";
         if (playButton) playButton.textContent = "Play the Endless Ahhh";
         return;
@@ -372,6 +371,8 @@ function playAhhh() {
     // Construct the URL with the special ordering, the chosen mode, and a cache-buster
     const playbackUrl = `${MASTER_PLAYBACK_URL}?order=special&mode=${mode}&t=${new Date().getTime()}`;
 
+    // --- IPHONE FIX: Always create a new Audio object on play ---
+    // This ensures the play action is always directly tied to the user's tap.
     masterPlaybackAudio = new Audio(playbackUrl);
     masterPlaybackAudio.loop = true;
     masterPlaybackAudio.play()
