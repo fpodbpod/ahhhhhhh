@@ -155,7 +155,9 @@ app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callb
                 command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
             }
 
-            command.toFormat('webm').pipe(res, { end: true });
+            command
+                .outputOptions('-movflags faststart') // Optimizes the stream for web playback
+                .toFormat('webm').pipe(res, { end: true });
         });
     } catch (error) {
         console.error('Error serving master drone:', error);
