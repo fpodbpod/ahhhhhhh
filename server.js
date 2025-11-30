@@ -122,8 +122,9 @@ app.get('/api/master_drone', async (req, res) => {
         const command = ffmpeg();
         playlist.forEach(file => command.input(file));
 
-        // Always output as webm for consistent playback, as ffmpeg can convert mp4 on the fly.
-        res.setHeader('Content-Type', 'audio/webm'); 
+        // --- UNIVERSAL COMPATIBILITY FIX ---
+        // Always output as MP4 (with AAC codec), as this is universally supported, especially on iOS.
+        res.setHeader('Content-Type', 'audio/mp4'); 
 
         command
             .on('error', (err) => {
@@ -146,7 +147,10 @@ app.get('/api/master_drone', async (req, res) => {
             command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
         }
 
-        command.toFormat('webm').pipe(res, { end: true });
+        // Set the output format to MP4 and use the libfdk_aac codec for high quality and compatibility.
+        command
+            .toFormat('mp4')
+            .pipe(res, { end: true });
 
     } catch (error) {
         console.error('Error serving master drone:', error);
