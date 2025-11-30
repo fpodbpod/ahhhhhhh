@@ -156,7 +156,13 @@ app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callb
             }
 
             command
-                .outputOptions('-movflags faststart') // Optimizes the stream for web playback
+                // --- FINAL iOS COMPATIBILITY FIX ---
+                // Enforce a specific, highly-compatible AAC profile and sample rate for the output stream.
+                .outputOptions([
+                    '-movflags faststart', // Optimizes for streaming
+                    '-profile:a aac_he_v2',  // Use High-Efficiency AAC v2 Profile
+                    '-ar 44100'            // Set a standard audio sample rate
+                ])
                 .toFormat('webm').pipe(res, { end: true });
         });
     } catch (error) {
