@@ -1,251 +1,497 @@
-const express = require('express');
-const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
-const cors = require('cors'); // Import the cors package
-const ffmpeg = require('fluent-ffmpeg');
+<style>
+    /* --- New Aesthetic Styles --- */
+    #sound-art-app {
+        font-family: Helvetica, Arial, sans-serif;
+        max-width: 650px;
+        margin: 40px auto;
+        padding: 40px;
+        background-color: #fdfdfd;
+        border: 1px solid #e0e0e0;
+        border-radius: 12px;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.05);
+        text-align: center;
+    }
 
-const app = express();
-// Render assigns the port dynamically, so we use process.env.PORT
-const port = process.env.PORT || 3000; 
+    /* Typography */
+    #sound-art-app h3 {
+        font-size: 2.8em;
+        font-weight: 600;
+        color: #1c1c1c;
+        margin-top: 0;
+        margin-bottom: 15px;
+    }
 
-// --- Configuration ---
-// Use the persistent disk path you created on Render.
-const PERSISTENT_STORAGE_PATH = '/var/data/ahhhhhhh_files'; // Final destination for processed files.
-const UPLOAD_DIR = '/tmp/uploads'; // Temporary location for initial uploads.
+    #sound-art-app p {
+        color: #555;
+        line-height: 1.6;
+    }
 
-// Configure multer to save files to the temporary upload directory.
-const upload = multer({ dest: UPLOAD_DIR });
+    #status {
+        min-height: 20px;
+        color: #666;
+        font-style: italic;
+        margin: 20px 0;
+    }
 
-// Ensure both directories exist on server startup.
-if (!fs.existsSync(PERSISTENT_STORAGE_PATH)) {
-    fs.mkdirSync(PERSISTENT_STORAGE_PATH, { recursive: true });
+    /* Button Base Styles */
+    .btn {
+        padding: 12px 20px;
+        font-size: 1em;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-weight: 500;
+    }
+
+    /* Primary Action Buttons */
+    #recordButton {
+        background-color: #ff3b30; /* Red for Record */
+        color: white;
+    }
+    #recordButton:hover {
+        background-color: #c82333;
+    }
+    #playChainButton {
+        background-color: #007aff;
+        color: white;
+    }
+    #playChainButton:hover {
+        background-color: #0056b3;
+    }
+     #recordButton:disabled {
+        background-color: #a0c7e8;
+        cursor: not-allowed;
+    }
+
+    /* Secondary Action Buttons */
+    #submitButton { background-color: #34c759; color: white; }
+    #submitButton:hover { background-color: #28a745; }
+
+    #discardButton, #previewButton { background-color: #f0f0f0; color: #333; border: 1px solid #ccc; }
+    #discardButton:hover, #previewButton:hover { background-color: #e0e0e0; }
+
+    #stopButton { background-color: #007aff; color: white; } /* Blue for Stop */
+    #stopButton:hover { background-color: #0056b3; }
+
+    /* Layout & Control Groups */
+    .controls-group {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        margin-top: 20px;
+        align-items: center;
+    }
+
+    /* Footer Reset Area */
+    .footer-controls {
+        margin-top: 40px;
+        padding-top: 20px;
+        border-top: 1px solid #eee;
+    }
+    .footer-controls input { padding: 5px; border: 1px solid #ccc; border-radius: 4px; }
+    .footer-controls button { background: #eee; border: 1px solid #ccc; border-radius: 50%; width: 30px; height: 30px; }
+
+</style>
+
+<div id="sound-art-app">
+    <h3>Endless Ahhhhhhh</h3>
+    <p style="max-width: 600px; margin: 15px auto; line-height: 1.5;">Add your voice to the Endless Ahhhhhhh. Press record and give an ahhhhhhh of any variety you like. Your ahhhhhhh will be stitched together with all past and future ahhhhhhhs to create a tapestry of ahhhhhhh uniting the people of the world in an endless loop.</p>
+    <div class="controls-group">
+        <button id="enableMicButton" class="btn">Enable Microphone</button>
+        <button id="recordButton" class="btn hidden-control">Start Recording</button>
+        <button class="hidden-control btn" disabled="" id="stopButton">Stop Recording</button>
+    </div>
+    <p id="status">Ready to record.</p>
+    <div class="controls-group">
+        <button class="hidden-control btn" id="previewButton">Preview</button>
+        <button class="hidden-control btn" disabled="" id="submitButton">Submit to Collective</button>
+        <button class="hidden-control btn" disabled="" id="discardButton">Discard</button>
+    </div>
+
+    <div class="controls-group" style="margin-top: 30px;">
+        <button id="playChainButton" class="btn" style="width: 60%; font-size: 1.1em;">Play the Endless Ahhh</button>
+    </div>
+    <!-- Simplified Playback Mode Toggle -->
+    <div class="toggle-row" style="justify-content: center; margin-top: 15px; gap: 10px;">
+        <span>Simultaneous Playback</span>
+        <label class="toggle-switch"><input type="checkbox" id="playback_mode"><span class="toggle-slider"></span></label>
+    </div>
+    <div class="footer-controls">
+        <input type="password" id="secretKeyInput" placeholder="secret key">
+        <button id="resetButton" title="Reset All Ahhhs">X</button>
+        <button id="unfreezeButton" style="display: none;">Unfreeze Interface</button>
+    </div>
+</div>
+<script>
+// --- 1. Global Variables (CHANGED TO VAR TO PREVENT DUPLICATE DECLARATION ERROR) ---
+var mediaRecorder = null; 
+var recordedChunks = [];
+var audioStream = null; 
+var masterPlaybackAudio = null; // To control the master drone playback
+
+var supportedMimeType = 'audio/webm'; // Default to webm
+var fileExtension = '.webm';
+
+// Use relative URLs now that the frontend is served from the same domain as the API.
+const SERVER_URL = '/api/upload'; 
+const MASTER_PLAYBACK_URL = '/api/master_drone';
+const RESET_URL = '/api/reset';
+
+// --- 2. Element References ---
+var recordButton; 
+var stopButton; 
+var unfreezeButton;
+var previewButton; 
+var submitButton; 
+var discardButton; 
+var playButton; 
+var statusText; 
+var secretKeyInput;
+var resetButton;
+
+var enableMicButton; // New button reference
+// --- 3. Function to Initialize the Application (Runs AFTER Page Loads) ---
+function waitForAppAndInitialize() {
+    const appContainer = document.getElementById('sound-art-app');
+    if (appContainer) {
+        console.log("LOG: App container found. Initializing listeners.");
+        // --- Assign elements ---
+        recordButton = document.getElementById('recordButton'); 
+        enableMicButton = document.getElementById('enableMicButton');
+        stopButton = document.getElementById('stopButton'); 
+        unfreezeButton = document.getElementById('unfreezeButton');
+        previewButton = document.getElementById('previewButton');
+        submitButton = document.getElementById('submitButton');
+        discardButton = document.getElementById('discardButton');
+        playButton = document.getElementById('playChainButton');
+        statusText = document.getElementById('status');
+        secretKeyInput = document.getElementById('secretKeyInput');
+        resetButton = document.getElementById('resetButton');
+
+        // --- Attach listeners ---
+        if (recordButton) recordButton.addEventListener('click', startRecording);
+        if (enableMicButton) enableMicButton.addEventListener('click', getMicrophoneAccess);
+        if (stopButton) stopButton.addEventListener('click', stopRecording);
+        if (submitButton) submitButton.addEventListener('click', submitAhhh);
+        if (discardButton) discardButton.addEventListener('click', discardAhhh);
+        if (playButton) playButton.addEventListener('click', playAhhh);
+        if (unfreezeButton) unfreezeButton.addEventListener('click', unfreezeInterface);
+        if (previewButton) previewButton.addEventListener('click', previewAhhh);
+        if (resetButton) resetButton.addEventListener('click', resetAhhs);
+
+        if (statusText) statusText.textContent = "Press 'Enable Microphone' to begin.";
+    } else {
+        console.log("LOG: App container not found yet. Retrying in 100ms.");
+        setTimeout(waitForAppAndInitialize, 100); // Retry after a short delay
+    }
 }
-if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+// Start the initialization check.
+waitForAppAndInitialize();
+
+function isDesktop() {
+    // A simple check to distinguish mobile/tablet from desktop.
+    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+    return !/android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
 }
 
-// Use the cors middleware to handle all CORS-related headers automatically.
-// This is more robust than setting headers manually.
-app.use(cors());
-
-// --- NEW: Serve static files from a 'public' directory ---
-// This tells Express that any files in the 'public' folder should be accessible to the web.
-app.use(express.static(path.join(__dirname, 'public')));
-
-// This ensures that when someone visits your site's root URL, they get your app.
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Middleware to parse JSON bodies (needed for the new reset endpoint)
-app.use(express.json());
-
-// --- API Endpoint 1: Upload New Recording ---
-app.post('/api/upload', upload.single('audio'), async (req, res) => {
-    if (!req.file) {
-        return res.status(400).send('No audio file uploaded.');
-    }
-
-    const tempUploadPath = req.file.path; // Path to the file in /tmp/uploads
-    // --- UNIFIED FORMAT STRATEGY: Always save as .webm ---
-    // This ensures all files on disk are in a consistent, reliable format.
-    const finalPath = path.join(PERSISTENT_STORAGE_PATH, `ahhh-${Date.now()}.webm`);
-    
-    try {
-        // We will process the uploaded file to trim silence, then save it back to its final location.
-        console.log(`Processing file from ${tempUploadPath} to ${finalPath}`);
-        await trimAndSave(tempUploadPath, finalPath);
-        console.log(`File successfully saved to persistent storage: ${finalPath}`);
-        res.status(200).json({ message: 'Successfully added to the communal ahhh!', status: 'processed' });
-    } catch (error) {
-        console.error('Error processing upload:', error);
-        // Clean up the final file if it was partially created on failure.
-        if (fs.existsSync(finalPath)) {
-            fs.unlinkSync(finalPath);
-        }
-        res.status(500).json({ message: 'Failed to process the new recording.', error: error.message });
+document.addEventListener('DOMContentLoaded', () => {
+    if (isDesktop()) {
+        console.log("LOG: Desktop browser detected. Disabling recording.");
+        const enableMicButton = document.getElementById('enableMicButton');
+        const statusText = document.getElementById('status');
+        
+        if (enableMicButton) enableMicButton.style.display = 'none';
+        if (statusText) statusText.innerHTML = '<strong style="color: red;">Currently only available on mobile devices. Please open on your phone to continue.</strong>';
     }
 });
 
-// --- API Endpoint 2: Serve the Master Drone (For Playback) ---
-app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callbacks
-    try {
-        const files = fs.readdirSync(PERSISTENT_STORAGE_PATH)
-            .filter(file => file.endsWith('.webm') || file.endsWith('.mp4'))
-            .map(file => { // Get stats for each file
-                const filePath = path.join(PERSISTENT_STORAGE_PATH, file);
-                try {
-                    const stats = fs.statSync(filePath);
-                    return { name: file, path: filePath, time: stats.mtime.getTime(), size: stats.size };
-                } catch (e) {
-                    console.error(`Could not stat file ${filePath}, skipping. Error: ${e.message}`);
-                    return null; // If we can't get stats, ignore the file.
-                }
-            })
-            .filter(file => file && file.size > 100) // Filter out nulls and any file smaller than 100 bytes.
-            .sort((a, b) => b.time - a.time); // Sort descending, newest first
+// --- 4. Main Application Functions ---
 
-        // --- NEW: Validate each file with ffprobe to ensure it has an audio stream ---
-        const validationPromises = files.map(file => {
-            return new Promise((resolve) => {
-                ffmpeg.ffprobe(file.path, (err, metadata) => {
-                    // Check if there's an error OR if the streams array has an audio stream.
-                    if (err || !metadata.streams.some(s => s.codec_type === 'audio')) {
-                        console.warn(`WARN: Skipping invalid/corrupt file: ${file.name}`);
-                        resolve(null); // Resolve with null if invalid
-                    } else {
-                        resolve(file); // Resolve with the file object if valid
-                    }
-                });
-            });
-        });
-
-        Promise.all(validationPromises).then(validatedFiles => {
-            const playlistFiles = validatedFiles.filter(Boolean); // Filter out any nulls (invalid files)
-
-            console.log(`LOG: Found ${playlistFiles.length} valid recordings to play.`);
-
-            if (playlistFiles.length === 0) {
-                return res.status(404).send('The communal ahhh has not started yet!');
-            }
-
-            if (playlistFiles.length === 1) {
-                const singleFilePath = playlistFiles[0].path;
-                console.log(`Serving single file: ${singleFilePath}`);
-                const mimeType = path.extname(singleFilePath) === '.mp4' ? 'audio/mp4' : 'audio/webm';
-                res.setHeader('Content-Type', mimeType);
-                return res.sendFile(singleFilePath);
-            }
-
-            let playlist = [];
-            if (req.query.order === 'special') {
-                const mostRecent = playlistFiles.shift();
-                const others = playlistFiles;
-                for (let i = others.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [others[i], others[j]] = [others[j], others[i]];
-                }
-                playlist = [mostRecent, ...others].map(f => f.path);
-            } else {
-                playlist = playlistFiles.reverse().map(f => f.path);
-            }
-
-            const command = ffmpeg();
-            playlist.forEach(file => command.input(file));
-
-            // --- UNIFIED FORMAT PIPELINE: Always stream WebM. ---
-            // The files on disk are WebM, so we will stream WebM.
-            // This avoids the on-the-fly Opus -> AAC conversion that is failing.
-            res.setHeader('Content-Type', 'audio/webm');
-
-            command.on('error', (err) => {
-                console.error('FFmpeg streaming error:', err.message);
-                if (!res.headersSent) {
-                    res.status(500).send('Error during audio concatenation.');
-                }
-            });
-
-            if (req.query.mode === 'sequential') {
-                console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
-                // --- RE-INTRODUCE CROSSFADING ---
-                // Build a filter chain that crossfades each file into the next.
-                const filter = playlist.slice(1).reduce((acc, _, index) => {
-                    const input1 = index === 0 ? '[0:a]' : `[a${index - 1}]`;
-                    const input2 = `[${index + 1}:a]`;
-                    return `${acc}${input1}${input2}acrossfade=d=2[a${index}];`;
-                }, '').slice(0, -1); // Build chain and remove final semicolon
-                command.complexFilter(filter).outputOptions('-map', `[a${playlist.length - 2}]`);
-            } else {
-                console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
-                command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
-            }
-
-            command
-                .outputOptions('-movflags faststart') // Optimizes the stream for web playback
-                .toFormat('webm').pipe(res, { end: true });
-        });
-    } catch (error) {
-        console.error('Error serving master drone:', error);
-        res.status(500).send('Could not generate the communal ahhh.');
-    }
-});
-
-// --- API Endpoint 3: Reset All Recordings (Secret Endpoint) ---
-app.post('/api/reset', (req, res) => {
-    const { secret } = req.body;
-    const RESET_SECRET_KEY = process.env.RESET_SECRET || 'lulu'; // Use environment variable
-
-    if (secret !== RESET_SECRET_KEY) {
-        return res.status(403).send('Forbidden: Invalid secret key.');
-    }
-
-    try {
-        const files = fs.readdirSync(PERSISTENT_STORAGE_PATH);
-        if (files.length === 0) {
-            return res.status(200).send('Nothing to reset. The communal ahhh was already empty.');
-        }
-
-        files.forEach(file => {
-            fs.unlinkSync(path.join(PERSISTENT_STORAGE_PATH, file));
-        });
-
-        console.log('LOG: All recordings have been deleted by secret key.');
-        res.status(200).send('The communal ahhh has been reset.');
-    } catch (error) {
-        console.error('ERROR: Failed to reset recordings:', error);
-        res.status(500).send('An error occurred while trying to reset the recordings.');
-    }
-});
-
-// --- Audio Processing Helper Function ---
-function trimAndSave(inputPath, outputPath) {
-    return new Promise((resolve, reject) => {
+// This function handles getting the mic access when the button is clicked
+async function getMicrophoneAccess() {
+    // If the stream from a previous session is still active, we can reuse it.
+    // However, the MediaRecorder MUST be created fresh for each new recording.
+    if (audioStream && audioStream.active) {
+        console.log("LOG: Reusing existing microphone stream.");
+    } else {
+        if (statusText) statusText.textContent = "Requesting microphone access...";
+        console.log("LOG: Requesting new microphone access...");
         try {
-            // --- RE-INTRODUCE SILENCE REMOVAL (STABLE METHOD) ---
-            // By applying the complex filter to all inputs, we force ffmpeg to decode
-            // the audio before filtering, which is more reliable for all source formats.
-            ffmpeg(inputPath)
-                .complexFilter([
-                    '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]','[trim1]areverse[rev1]','[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]','[trim2]areverse[out]',
-                ]).outputOptions([
-                    '-map [out]', '-c:a libopus', '-b:a 160k', '-f webm'
-                ])
-                .save(outputPath)
-            .on('end', async () => {
-                try {
-                    // After saving, delete the original temporary upload.
-                    if (fs.existsSync(inputPath)) {
-                        fs.unlinkSync(inputPath);
-                    }
-
-                    // Asynchronously get file stats.
-                    const stats = await fs.promises.stat(outputPath);
-                    console.log(`LOG: Processed file saved. Size: ${stats.size} bytes.`);
-
-                    if (stats.size < 400) { // Increased threshold for safety
-                        // If the file is unreasonably small, it's corrupt.
-                        await fs.promises.unlink(outputPath);
-                        return reject(new Error(`Processed file was too small (${stats.size} bytes) and was discarded.`));
-                    }
-                    resolve(); // File is valid, resolve the promise.
-                } catch (statError) {
-                    reject(new Error(`Failed to verify output file: ${statError.message}`));
-                }
-            })
-            .on('error', (err) => {
-                reject(new Error(`FFmpeg processing error: ${err.message}`));
-            });
-
-        } catch (error) {
-            // This outer catch will handle any synchronous errors during ffmpeg setup.
-            reject(new Error(`FFmpeg setup failed: ${error.message}`));
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioStream = stream;
+        } catch (err) {
+            if (statusText) statusText.textContent = "ERROR: Microphone permission denied. Use Unfreeze Failsafe.";
+            console.error('ERROR: Microphone access failed:', err);
+            return null; // Return null on failure
         }
+    }
+
+    // --- NEW: Check for supported mimeType for iOS compatibility ---
+    if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        supportedMimeType = 'audio/mp4';
+        fileExtension = '.mp4';
+        console.log("LOG: Using 'audio/mp4' for recording.");
+    } else {
+        supportedMimeType = 'audio/webm';
+        fileExtension = '.webm';
+        console.log("LOG: Using 'audio/webm' for recording.");
+    }
+    // -------------------------------------------------------------
+
+    try {
+        mediaRecorder = new MediaRecorder(audioStream, { mimeType: supportedMimeType });
+        mediaRecorder.ondataavailable = function(e) {
+            recordedChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = function() {
+            if (statusText) statusText.textContent = "Recording complete. Ready to preview or submit.";
+            if (previewButton) previewButton.classList.remove('hidden-control');
+            if (submitButton) submitButton.classList.remove('hidden-control');
+            if (discardButton) discardButton.classList.remove('hidden-control');
+            if (recordButton) recordButton.disabled = false;
+            if (submitButton) submitButton.disabled = false;
+            if (discardButton) discardButton.disabled = false;
+        };
+        console.log("LOG: Microphone stream acquired successfully.");
+
+        // --- NEW: Update UI after getting permission ---
+        if (statusText) statusText.textContent = "Microphone enabled. Press 'Start Recording'.";
+        if (enableMicButton) enableMicButton.classList.add('hidden-control');
+        if (recordButton) recordButton.classList.remove('hidden-control');
+        // ------------------------------------------------
+
+    } catch (e) {
+        if (statusText) statusText.textContent = "ERROR: Could not create recorder. Your browser may be unsupported.";
+        console.error("ERROR: Failed to create MediaRecorder:", e);
+        return null;
+    }
+
+    return audioStream; // Return the stream to indicate success
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function startRecording() {
+    // Disable button immediately to prevent multiple clicks
+    if (recordButton) recordButton.disabled = true;
+    
+    // The stream and recorder should already exist from getMicrophoneAccess
+    if (!mediaRecorder || mediaRecorder.state !== 'inactive') {
+        if (statusText) statusText.textContent = "Please enable microphone to record.";
+        if (recordButton) recordButton.disabled = false; // Re-enable on failure
+        return;
+    }
+
+
+    // --- Countdown Logic ---
+    if (statusText) statusText.textContent = "Get ready...";
+    await sleep(1000);
+    if (statusText) statusText.textContent = "3...";
+    await sleep(1000);
+    if (statusText) statusText.textContent = "2...";
+    await sleep(1000);
+    if (statusText) statusText.textContent = "1...";
+    await sleep(1000);
+
+    // --- START RECORDING AFTER COUNTDOWN ---
+    recordedChunks = [];
+    mediaRecorder.start();
+    if (stopButton) stopButton.disabled = false;
+    if (statusText) statusText.textContent = "Recording... (Max 5 seconds)";
+
+    // Hide post-recording controls while recording
+    if (submitButton) submitButton.classList.add('hidden-control');
+    if (discardButton) discardButton.classList.add('hidden-control');
+    if (previewButton) previewButton.classList.add('hidden-control');
+
+    // --- Automatically stop recording after 5 seconds FROM NOW ---
+    setTimeout(() => {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            stopRecording();
+        }
+    }, 5000); // 5000 milliseconds = 5 seconds
+}
+
+function stopRecording() {
+    if (!mediaRecorder) return;
+    mediaRecorder.stop();
+    if (recordButton) recordButton.disabled = true;
+    if (stopButton) stopButton.disabled = true;
+    if (statusText) statusText.textContent = "Processing recording...";
+    // --- DEFINITIVE FIX for subsequent recordings ---
+    // Destroy the MediaRecorder instance after it's used.
+    mediaRecorder = null;
+}
+
+function submitAhhh() {
+    if (recordedChunks.length === 0) {
+        if (statusText) statusText.textContent = "Error: Nothing recorded to submit.";
+        return;
+    }
+    
+    if (statusText) statusText.textContent = "Submitting to the collective ahhh... please wait.";
+    if (submitButton) submitButton.disabled = true;
+    if (discardButton) discardButton.disabled = true;
+    if (recordButton) recordButton.disabled = true; 
+    
+    let blob;
+    try {
+        // First, try the most specific and correct method.
+        const blobOptions = { type: recordedChunks[0].type };
+        blob = new Blob(recordedChunks, blobOptions);
+    } catch (e) {
+        // If the specific method fails (a known Safari bug), fall back to the simpler method.
+        console.warn("Blob creation with specific type failed, falling back to inferred type. Error:", e.message);
+        blob = new Blob(recordedChunks);
+    }
+
+    const formData = new FormData();
+    formData.append('audio', blob, `my-ahhh${fileExtension}`);
+    
+    fetch(SERVER_URL, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json()) // Expect a JSON response from the server
+    .then(data => {
+        // Check for the specific success status from our server
+        if (data && data.status === 'processed') {
+            if (statusText) statusText.textContent = "Submission successful! Your ahhh is now part of the drone.";
+            recordedChunks = []; // Clear the recording
+        } else {
+            // If the server gives a success status code but not our expected message, something is wrong.
+            throw new Error(data.message || 'Server response was not as expected.');
+        }
+    })
+    .catch(error => {
+        // This will now catch network errors, JSON parsing errors, or our thrown error.
+        if (statusText) statusText.textContent = "Submission failed: " + (error.message || error);
+        console.error('Submission Error:', error);
+    })
+    .finally(() => {
+        if (recordButton) recordButton.disabled = false;
+        if (stopButton) stopButton.disabled = true; 
+        if (submitButton) submitButton.classList.add('hidden-control');
+        if (discardButton) discardButton.classList.add('hidden-control');
+        if (previewButton) previewButton.classList.add('hidden-control');
     });
 }
 
+function playAhhh() {
+    if (masterPlaybackAudio && !masterPlaybackAudio.paused) {
+        masterPlaybackAudio.pause();
+        masterPlaybackAudio.currentTime = 0;
+        if (statusText) statusText.textContent = "Playback stopped. Ready to record. Recording will begin after 3 second countdown.";
+        if (playButton) playButton.textContent = "Play the Endless Ahhh";
+        return;
+    }
 
-// --- Start Server ---
-app.listen(port, () => {
-    console.log(`Server listening on port ${port}`);
-});
+    if (statusText) statusText.textContent = "Attempting to play the endless ahhh...";
+    if (playButton) playButton.textContent = "Stop the Endless Ahhh";
+
+    // Check the state of the new toggle switch
+    const playbackModeSwitch = document.getElementById('playback_mode');
+    const mode = playbackModeSwitch.checked ? 'simultaneous' : 'sequential';
+
+    // Construct the URL with the special ordering, the chosen mode, and a cache-buster
+    const playbackUrl = `${MASTER_PLAYBACK_URL}?order=special&mode=${mode}&t=${new Date().getTime()}`;
+
+    // --- IPHONE FIX: Always create a new Audio object on play ---
+    // This ensures the play action is always directly tied to the user's tap.
+    masterPlaybackAudio = new Audio(playbackUrl);
+    masterPlaybackAudio.loop = true;
+    masterPlaybackAudio.play()
+        .then(() => {
+            if (statusText) statusText.textContent = "Playing the endless ahhh... Click the button again to stop.";
+        })
+        .catch(error => {
+            let errorMessage;
+            // This specific error message often means the server sent an invalid audio source,
+            // which can happen if no recordings exist yet.
+            if (error.message.includes("no supported source was found")) {
+                errorMessage = "Playback failed. Have any 'ahhhs' been submitted yet? The drone needs at least one recording to play.";
+            }
+            if (statusText) statusText.textContent = errorMessage;
+            console.error('Playback Error:', error);
+            if (playButton) playButton.textContent = "Play the Endless Ahhh";
+            masterPlaybackAudio = null;
+        });
+}
+
+function discardAhhh() {
+    recordedChunks = [];
+    if (statusText) statusText.textContent = "Discarded. Ready to record. Recording will begin after 3 second countdown.";
+    
+    if (submitButton) submitButton.classList.add('hidden-control');
+    if (discardButton) discardButton.classList.add('hidden-control');
+    if (previewButton) previewButton.classList.add('hidden-control');
+    if (recordButton) recordButton.disabled = false; 
+}
+
+function unfreezeInterface() {
+    if (recordButton) recordButton.disabled = false;
+    if (stopButton) stopButton.disabled = true;
+    if (enableMicButton) enableMicButton.classList.remove('hidden-control');
+    if (recordButton) recordButton.classList.add('hidden-control');
+    if (statusText) statusText.textContent = "Interface unfrozen. Ready to enable microphone.";
+    console.log("Interface unfrozen.");
+}
+
+function previewAhhh() {
+    if (recordedChunks.length === 0) {
+        if (statusText) statusText.textContent = "Nothing to preview.";
+        return;
+    }
+    if (statusText) statusText.textContent = "Previewing your 'Ahhh'...";
+    // Use the same robust blob creation for previews.
+    let blob;
+    try {
+        const blobOptions = { type: recordedChunks[0].type };
+        blob = new Blob(recordedChunks, blobOptions);
+    } catch (e) {
+        blob = new Blob(recordedChunks);
+    }
+
+    const audioUrl = URL.createObjectURL(blob);
+    const audio = new Audio(audioUrl);
+    audio.play()
+        .catch(err => console.error("Preview playback failed:", err));
+    audio.onended = () => {
+        if (statusText) statusText.textContent = "Preview finished. Ready to submit or discard.";
+    };
+}
+
+function resetAhhs() {
+    const secret = secretKeyInput.value;
+    if (!secret) {
+        if (statusText) statusText.textContent = "Please enter the secret key to reset.";
+        return;
+    }
+
+    if (statusText) statusText.textContent = "Attempting to reset all recordings...";
+
+    fetch(RESET_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ secret: secret }),
+    })
+    .then(response => response.text().then(text => {
+        if (!response.ok) {
+            throw new Error(text || 'Failed with status: ' + response.status);
+        }
+        if (statusText) statusText.textContent = "Reset successful: " + text;
+        if (secretKeyInput) secretKeyInput.value = ''; // Clear the input
+    }))
+    .catch(error => {
+        if (statusText) statusText.textContent = "Reset failed: " + error.message;
+        console.error('Reset Error:', error);
+    });
+}
+</script>
