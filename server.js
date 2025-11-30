@@ -192,50 +192,58 @@ app.post('/api/reset', (req, res) => {
 function trimAndSave(inputPath, outputPath) {
     return new Promise((resolve, reject) => {
         try {
-            ffmpeg(inputPath)
-                .complexFilter([
-                    // Trim silence from both start and end of the recording
+            const command = ffmpeg(inputPath);
+
+            // --- NEW: Bulletproof iPhone Conversion Logic ---
+            // If the input is an MP4, we do a clean conversion to WebM first.
+            // This is more reliable than trying to trim the AAC stream directly.
+            if (path.extname(inputPath).toLowerCase() === '.mp4') {
+                console.log('LOG: MP4 detected. Performing clean conversion to WebM before trimming.');
+                command.outputOptions('-c:a libopus', '-b:a 160k', '-f webm');
+            } else {
+                // For webm inputs, we can apply the silence trim directly.
+                command.complexFilter([
                     '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]',
                     '[trim1]areverse[rev1]',
                     '[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]',
                     '[trim2]areverse[out]',
-                ])
-                // --- FIX: Use the correct codec for the container ---
-                // Always output to WebM with the reliable libopus codec.
-                // ffmpeg will handle converting the source (even if it's MP4/AAC) correctly.
-                .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm'])
-                .save(outputPath)
-                .on('end', async () => { // Make the callback async
-                    try {
-                        // After successfully saving, delete the original temporary upload.
-                        if (fs.existsSync(inputPath)) {
-                            fs.unlinkSync(inputPath);
-                        }
+                ]).outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm']);
+            }
+            // -------------------------------------------------
 
-                        // Asynchronously get file stats.
-                        const stats = await fs.promises.stat(outputPath);
-                        console.log(`LOG: Trimmed file saved. Size: ${stats.size} bytes.`);
-
-                        if (stats.size === 0) {
-                            // If the file is empty, delete it and reject the promise.
-                            await fs.promises.unlink(outputPath);
-                            return reject(new Error('Recording was empty after trimming silence and was discarded.'));
-                        }
-                        resolve(); // File is valid, resolve the promise.
-                    } catch (statError) {
-                        reject(new Error(`Failed to verify output file: ${statError.message}`));
+            command.save(outputPath)
+            .on('end', async () => {
+                try {
+                    // After saving, delete the original temporary upload.
+                    if (fs.existsSync(inputPath)) {
+                        fs.unlinkSync(inputPath);
                     }
-                })
-                .on('error', (err) => {
-                    // This will now safely reject the promise without crashing.
-                    reject(new Error(`FFmpeg processing error: ${err.message}`));
-                });
+
+                    // Asynchronously get file stats.
+                    const stats = await fs.promises.stat(outputPath);
+                    console.log(`LOG: Processed file saved. Size: ${stats.size} bytes.`);
+
+                    if (stats.size < 400) { // Increased threshold for safety
+                        // If the file is unreasonably small, it's corrupt.
+                        await fs.promises.unlink(outputPath);
+                        return reject(new Error(`Processed file was too small (${stats.size} bytes) and was discarded.`));
+                    }
+                    resolve(); // File is valid, resolve the promise.
+                } catch (statError) {
+                    reject(new Error(`Failed to verify output file: ${statError.message}`));
+                }
+            })
+            .on('error', (err) => {
+                reject(new Error(`FFmpeg processing error: ${err.message}`));
+            });
+
         } catch (error) {
             // This outer catch will handle any synchronous errors during ffmpeg setup.
             reject(new Error(`FFmpeg setup failed: ${error.message}`));
         }
     });
 }
+
 
 // --- Start Server ---
 app.listen(port, () => {
