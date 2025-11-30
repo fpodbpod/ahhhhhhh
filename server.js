@@ -133,7 +133,9 @@ app.get('/api/master_drone', async (req, res) => { // Make the entire function a
         const command = ffmpeg();
         playlist.forEach(file => command.input(file));
 
-        res.setHeader('Content-Type', 'audio/webm');
+        // --- FINAL, DEFINITIVE IOS PLAYBACK FIX ---
+        // Serve the final stream as MP4/AAC, the only format universally supported by all browsers, especially Safari.
+        res.setHeader('Content-Type', 'audio/mp4');
 
         command.on('error', (err) => {
             console.error('FFmpeg streaming error:', err.message);
@@ -158,8 +160,8 @@ app.get('/api/master_drone', async (req, res) => { // Make the entire function a
         }
 
         command
-            .outputOptions(['-movflags faststart', '-b:a 192k'])
-            .toFormat('webm').pipe(res, { end: true });
+            .outputOptions(['-movflags faststart', '-c:a aac', '-b:a 192k']) // Use the AAC codec for MP4
+            .toFormat('mp4').pipe(res, { end: true });
             
     } catch (error) {
         console.error('Error serving master drone:', error);
