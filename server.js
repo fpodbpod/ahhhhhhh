@@ -55,7 +55,7 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
     try {
         // We will process the uploaded file to trim silence, then save it back to its final location.
         console.log(`Processing file from ${tempUploadPath} to ${finalPath}`);
-        await trimAndSave(tempUploadPath, finalPath);
+        await trimAndSave(tempUploadPath, finalPath, req); // Pass the 'req' object
         console.log(`File successfully saved to persistent storage: ${finalPath}`);
         res.status(200).json({ message: 'Successfully added to the communal ahhh!', status: 'processed' });
     } catch (error) {
@@ -204,7 +204,7 @@ app.post('/api/reset', (req, res) => {
 });
 
 // --- Audio Processing Helper Function ---
-function trimAndSave(inputPath, outputPath) {
+function trimAndSave(inputPath, outputPath, req) { // Add 'req' as a parameter
     return new Promise((resolve, reject) => {
         try {
             const command = ffmpeg(inputPath);
