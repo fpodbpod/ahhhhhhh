@@ -382,8 +382,8 @@ function submitAhhh() {
 async function playAhhh() {
     // --- NEW Web Audio API Playback Logic ---
 
-    // If audio is already playing, stop it.
-    if (audioContext.state === 'running') {
+    // If audio is already playing, stop it and return.
+    if (audioContext && audioContext.state === 'running') {
         sources.forEach(source => source.stop());
         sources = [];
         // --- DEFINITIVE FIX: Suspend the context instead of closing it. ---
@@ -395,8 +395,8 @@ async function playAhhh() {
         return;
     }
 
-    // --- DEFINITIVE FIX: Initialize or Resume Audio Context on user gesture ---
-    // This ensures the context is created or resumed by the user's tap, which is required by browsers.
+    // --- DEFINITIVE FIX: Ensure we have a running AudioContext BEFORE proceeding ---
+    // 1. Create the context if it doesn't exist.
     if (!audioContext) {
         try {
             console.log("LOG: Creating new AudioContext.");
@@ -408,7 +408,7 @@ async function playAhhh() {
         }
     }
 
-    // Resume context if it was suspended (important for mobile)
+    // 2. If the context is suspended (from a previous "stop"), resume it.
     if (audioContext.state === 'suspended') {
         console.log("LOG: Resuming suspended AudioContext.");
         await audioContext.resume();
