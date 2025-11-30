@@ -197,7 +197,11 @@ function trimAndSave(inputPath, outputPath) {
                     '[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]',
                     '[trim2]areverse[out]',
                 ])
-                .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k']) // Let ffmpeg determine format from outputPath
+                // --- FIX: Use the correct codec for the container ---
+                // Use libopus for .webm files and libfdk_aac for .mp4 files.
+                .outputOptions(path.extname(outputPath) === '.webm' 
+                    ? ['-map [out]', '-c:a libopus', '-b:a 160k'] 
+                    : ['-map [out]', '-c:a aac', '-b:a 160k'])
                 .save(outputPath)
                 .on('end', async () => { // Make the callback async
                     try {
