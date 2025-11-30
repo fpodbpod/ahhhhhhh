@@ -159,7 +159,9 @@ app.get('/api/master_drone', async (req, res) => { // Make the entire function a
         command
             .input(listFilePath)
             .inputOptions(['-f concat', '-safe 0'])
-            .outputOptions(['-c copy']); // Critically, we COPY the stream, we don't re-encode it.
+            // Add the 'aac_adtstoasc' bitstream filter to correctly format the AAC stream for the MP4 container.
+            // This is the final fix to prevent the muxing error.
+            .outputOptions(['-c copy', '-bsf:a aac_adtstoasc']);
 
         command
             .toFormat('mp4').pipe(res, { end: true });
