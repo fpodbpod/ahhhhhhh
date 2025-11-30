@@ -102,13 +102,20 @@
     /* --- Responsive Styles for Mobile --- */
     @media (max-width: 700px) {
         #sound-art-app {
-            /* Remove large margins and padding for small screens */
-            margin: 10px;
-            padding: 20px;
-            width: auto; /* Allow it to fill the available space */
+            /* Fill the screen vertically and horizontally */
+            margin: 0;
+            padding: 20px 15px; /* Add some padding inside */
+            width: 100%;
+            min-height: 100vh; /* Ensure it's at least as tall as the screen */
+            box-sizing: border-box; /* Include padding in height/width calculation */
+            border-radius: 0; /* Square corners for a full-screen feel */
             /* Remove decorative border/shadow on mobile for a cleaner look */
             box-shadow: none;
             border: none;
+            /* Use flexbox to better space out the content vertically */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
         }
 
         #sound-art-app h3 {
