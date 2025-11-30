@@ -20,7 +20,560 @@
         margin-top: 0;
         margin-bottom: 15px;
     }
+<style>
+    /* --- New Aesthetic Styles --- */
+    #sound-art-app {
+        font-family: Helvetica, Arial, sans-serif;
+        max-width: 650px;
+        margin: 40px auto;
+        padding: 40px;
+        background-color: #fdfdfd;
+        border: 1px solid #e0e0e0;
+        border-radius: 12px;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.05);
+        text-align: center;
+    }
 
+    /* Typography */
+    #sound-art-app h3 {
+        font-size: 2.8em;
+        font-weight: 600;
+        color: #1c1c1c;
+        margin-top: 0;
+        margin-bottom: 15px;
+    }
+
+    #sound-art-app p {
+        color: #555;
+        line-height: 1.6;
+    }
+
+    #status {
+        min-height: 20px;
+        color: #666;
+        font-style: italic;
+        margin: 20px 0;
+    }
+
+    /* Button Base Styles */
+    .btn {
+        padding: 12px 20px;
+        font-size: 1em;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-weight: 500;
+    }
+
+    /* Primary Action Buttons */
+    #recordButton {
+        background-color: #ff3b30; /* Red for Record */
+        color: white;
+    }
+    #recordButton:hover {
+        background-color: #c82333;
+    }
+    #playChainButton {
+        background-color: #007aff;
+        color: white;
+    }
+    #playChainButton:hover {
+        background-color: #0056b3;
+    }
+     #recordButton:disabled {
+        background-color: #a0c7e8;
+        cursor: not-allowed;
+    }
+
+    /* Secondary Action Buttons */
+    #submitButton { background-color: #34c759; color: white; }
+    #submitButton:hover { background-color: #28a745; }
+
+    #discardButton, #previewButton { background-color: #f0f0f0; color: #333; border: 1px solid #ccc; }
+    #discardButton:hover, #previewButton:hover { background-color: #e0e0e0; }
+
+    #stopButton { background-color: #007aff; color: white; } /* Blue for Stop */
+    #stopButton:hover { background-color: #0056b3; }
+
+    /* Layout & Control Groups */
+    .controls-group {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        margin-top: 20px;
+        align-items: center;
+    }
+
+    /* Footer Reset Area */
+    .footer-controls {
+        margin-top: 40px;
+        padding-top: 20px;
+        border-top: 1px solid #eee;
+    }
+    .footer-controls input { padding: 5px; border: 1px solid #ccc; border-radius: 4px; }
+    .footer-controls button { background: #eee; border: 1px solid #ccc; border-radius: 50%; width: 30px; height: 30px; }
+
+</style>
+
+<div id="sound-art-app">
+    <h3>Endless Ahhhhhhh</h3>
+    <p style="max-width: 600px; margin: 15px auto; line-height: 1.5;">Add your voice to the Endless Ahhhhhhh. Press record and give an ahhhhhhh of any variety you like. Your ahhhhhhh will be stitched together with all past and future ahhhhhhhs to create a tapestry of ahhhhhhh uniting the people of the world in an endless loop.</p>
+    <div class="controls-group">
+        <button id="enableMicButton" class="btn">Enable Microphone</button>
+        <button id="recordButton" class="btn hidden-control">Start Recording</button>
+        <button class="hidden-control btn" disabled="" id="stopButton">Stop Recording</button>
+    </div>
+    <p id="status">Ready to record.</p>
+    <div class="controls-group">
+        <button class="hidden-control btn" id="previewButton">Preview</button>
+        <button class="hidden-control btn" disabled="" id="submitButton">Submit to Collective</button>
+        <button class="hidden-control btn" disabled="" id="discardButton">Discard</button>
+    </div>
+
+    <div class="controls-group" style="margin-top: 30px;">
+        <button id="playChainButton" class="btn" style="width: 60%; font-size: 1.1em;">Play the Endless Ahhh</button>
+    </div>
+    <!-- Simplified Playback Mode Toggle -->
+    <div class="toggle-row" style="justify-content: center; margin-top: 15px; gap: 10px;">
+        <span>Simultaneous Playback</span>
+        <label class="toggle-switch"><input type="checkbox" id="playback_mode"><span class="toggle-slider"></span></label>
+    </div>
+    <div class="footer-controls">
+        <input type="password" id="secretKeyInput" placeholder="secret key">
+        <button id="resetButton" title="Reset All Ahhhs">X</button>
+        <button id="unfreezeButton" style="display: none;">Unfreeze Interface</button>
+    </div>
+</div>
+<script>
+// --- 1. Global Variables (CHANGED TO VAR TO PREVENT DUPLICATE DECLARATION ERROR) ---
+var mediaRecorder = null; 
+var recordedChunks = [];
+var audioStream = null; 
+var masterPlaybackAudio = null; // To control the master drone playback
+
+var supportedMimeType = 'audio/webm'; // Default to webm
+var fileExtension = '.webm';
+
+// Use relative URLs now that the frontend is served from the same domain as the API.
+const UPLOAD_URL = '/api/upload'; 
+const PLAYLIST_URL = '/api/playlist';
+const RESET_URL = '/api/reset';
+
+// --- 2. Element References ---
+var recordButton; 
+var stopButton; 
+var unfreezeButton;
+var previewButton; 
+var submitButton; 
+var discardButton; 
+var playButton; 
+var statusText; 
+var secretKeyInput;
+var resetButton;
+
+var enableMicButton; // New button reference
+
+// --- Web Audio API Globals ---
+let audioContext;
+let sources = []; // To hold the audio buffer sources
+
+// --- 3. Function to Initialize the Application (Runs AFTER Page Loads) ---
+function waitForAppAndInitialize() {
+    const appContainer = document.getElementById('sound-art-app');
+    if (appContainer) {
+        console.log("LOG: App container found. Initializing listeners.");
+        // --- Assign elements ---
+        recordButton = document.getElementById('recordButton'); 
+        enableMicButton = document.getElementById('enableMicButton');
+        stopButton = document.getElementById('stopButton'); 
+        unfreezeButton = document.getElementById('unfreezeButton');
+        previewButton = document.getElementById('previewButton');
+        submitButton = document.getElementById('submitButton');
+        discardButton = document.getElementById('discardButton');
+        playButton = document.getElementById('playChainButton');
+        statusText = document.getElementById('status');
+        secretKeyInput = document.getElementById('secretKeyInput');
+        resetButton = document.getElementById('resetButton');
+
+        // --- Attach listeners ---
+        if (recordButton) recordButton.addEventListener('click', startRecording);
+        if (enableMicButton) enableMicButton.addEventListener('click', getMicrophoneAccess);
+        if (stopButton) stopButton.addEventListener('click', stopRecording);
+        if (submitButton) submitButton.addEventListener('click', submitAhhh);
+        if (discardButton) discardButton.addEventListener('click', discardAhhh);
+        if (playButton) playButton.addEventListener('click', playAhhh);
+        if (unfreezeButton) unfreezeButton.addEventListener('click', unfreezeInterface);
+        if (previewButton) previewButton.addEventListener('click', previewAhhh);
+        if (resetButton) resetButton.addEventListener('click', resetAhhs);
+
+        if (statusText) statusText.textContent = "Press 'Enable Microphone' to begin.";
+    } else {
+        console.log("LOG: App container not found yet. Retrying in 100ms.");
+        setTimeout(waitForAppAndInitialize, 100); // Retry after a short delay
+    }
+}
+
+// Start the initialization check.
+waitForAppAndInitialize();
+
+function isDesktop() {
+    // A simple check to distinguish mobile/tablet from desktop.
+    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+    return !/android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    if (isDesktop()) {
+        console.log("LOG: Desktop browser detected. Disabling recording.");
+        const enableMicButton = document.getElementById('enableMicButton');
+        const statusText = document.getElementById('status');
+        
+        if (enableMicButton) enableMicButton.style.display = 'none';
+        if (statusText) statusText.innerHTML = '<strong style="color: red;">Currently only available on mobile devices. Please open on your phone to continue.</strong>';
+    }
+});
+
+// --- 4. Main Application Functions ---
+
+// This function handles getting the mic access when the button is clicked
+async function getMicrophoneAccess() {
+    // If the stream from a previous session is still active, we can reuse it.
+    // However, the MediaRecorder MUST be created fresh for each new recording.
+    if (audioStream && audioStream.active) {
+        console.log("LOG: Reusing existing microphone stream.");
+    } else {
+        if (statusText) statusText.textContent = "Requesting microphone access...";
+        console.log("LOG: Requesting new microphone access...");
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioStream = stream;
+        } catch (err) {
+            if (statusText) statusText.textContent = "ERROR: Microphone permission denied. Use Unfreeze Failsafe.";
+            console.error('ERROR: Microphone access failed:', err);
+            return null; // Return null on failure
+        }
+    }
+
+    // --- NEW: Check for supported mimeType for iOS compatibility ---
+    if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        supportedMimeType = 'audio/mp4';
+        fileExtension = '.mp4';
+        console.log("LOG: Using 'audio/mp4' for recording.");
+    } else {
+        supportedMimeType = 'audio/webm';
+        fileExtension = '.webm';
+        console.log("LOG: Using 'audio/webm' for recording.");
+    }
+    // -------------------------------------------------------------
+
+    try {
+        mediaRecorder = new MediaRecorder(audioStream, { mimeType: supportedMimeType });
+        mediaRecorder.ondataavailable = function(e) {
+            recordedChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = function() {
+            if (statusText) statusText.textContent = "Recording complete. Ready to preview or submit.";
+            if (previewButton) previewButton.classList.remove('hidden-control');
+            if (submitButton) submitButton.classList.remove('hidden-control');
+            if (discardButton) discardButton.classList.remove('hidden-control');
+            if (recordButton) recordButton.disabled = false;
+            if (submitButton) submitButton.disabled = false;
+            if (discardButton) discardButton.disabled = false;
+        };
+        console.log("LOG: Microphone stream acquired successfully.");
+
+        // --- NEW: Update UI after getting permission ---
+        if (statusText) statusText.textContent = "Microphone enabled. Press 'Start Recording'.";
+        if (enableMicButton) enableMicButton.classList.add('hidden-control');
+        if (recordButton) recordButton.classList.remove('hidden-control');
+        // ------------------------------------------------
+
+    } catch (e) {
+        if (statusText) statusText.textContent = "ERROR: Could not create recorder. Your browser may be unsupported.";
+        console.error("ERROR: Failed to create MediaRecorder:", e);
+        return null;
+    }
+
+    return audioStream; // Return the stream to indicate success
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function startRecording() {
+    // Disable button immediately to prevent multiple clicks
+    if (recordButton) recordButton.disabled = true;
+    
+    // The stream and recorder should already exist from getMicrophoneAccess
+    if (!mediaRecorder || mediaRecorder.state !== 'inactive') {
+        if (statusText) statusText.textContent = "Please enable microphone to record.";
+        if (recordButton) recordButton.disabled = false; // Re-enable on failure
+        return;
+    }
+
+
+    // --- Countdown Logic ---
+    if (statusText) statusText.textContent = "Get ready...";
+    await sleep(1000);
+    if (statusText) statusText.textContent = "3...";
+    await sleep(1000);
+    if (statusText) statusText.textContent = "2...";
+    await sleep(1000);
+    if (statusText) statusText.textContent = "1...";
+    await sleep(1000);
+
+    // --- START RECORDING AFTER COUNTDOWN ---
+    recordedChunks = [];
+    mediaRecorder.start();
+    if (stopButton) stopButton.disabled = false;
+    if (statusText) statusText.textContent = "Recording... (Max 5 seconds)";
+
+    // Hide post-recording controls while recording
+    if (submitButton) submitButton.classList.add('hidden-control');
+    if (discardButton) discardButton.classList.add('hidden-control');
+    if (previewButton) previewButton.classList.add('hidden-control');
+
+    // --- Automatically stop recording after 5 seconds FROM NOW ---
+    setTimeout(() => {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            stopRecording();
+        }
+    }, 5000); // 5000 milliseconds = 5 seconds
+}
+
+function stopRecording() {
+    if (!mediaRecorder) return;
+    mediaRecorder.stop();
+    if (recordButton) recordButton.disabled = true;
+    if (stopButton) stopButton.disabled = true;
+    if (statusText) statusText.textContent = "Processing recording...";
+    // --- DEFINITIVE FIX for subsequent recordings ---
+    // Destroy the MediaRecorder instance after it's used.
+    mediaRecorder = null;
+}
+
+function submitAhhh() {
+    if (recordedChunks.length === 0) {
+        if (statusText) statusText.textContent = "Error: Nothing recorded to submit.";
+        return;
+    }
+    
+    if (statusText) statusText.textContent = "Submitting to the collective ahhh... please wait.";
+    if (submitButton) submitButton.disabled = true;
+    if (discardButton) discardButton.disabled = true;
+    if (recordButton) recordButton.disabled = true; 
+    
+    // --- DEFINITIVE BLOB FIX ---
+    // Use the globally determined supportedMimeType. This is the most reliable way to create a valid Blob.
+    const blob = new Blob(recordedChunks, { type: supportedMimeType });
+    const formData = new FormData();
+    formData.append('audio', blob, `my-ahhh${fileExtension}`);
+
+    fetch(UPLOAD_URL, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json()) // Expect a JSON response from the server
+    .then(data => {
+        // Check for the specific success status from our server
+        if (data && data.status === 'processed') {
+            if (statusText) statusText.textContent = "Submission successful! Your ahhh is now part of the drone.";
+            recordedChunks = []; // Clear the recording
+        } else {
+            // If the server gives a success status code but not our expected message, something is wrong.
+            throw new Error(data.message || 'Server response was not as expected.');
+        }
+    })
+    .catch(error => {
+        // This will now catch network errors, JSON parsing errors, or our thrown error.
+        if (statusText) statusText.textContent = "Submission failed: " + (error.message || error);
+        console.error('Submission Error:', error);
+    })
+    .finally(() => {
+        if (recordButton) recordButton.disabled = false;
+        if (stopButton) stopButton.disabled = true; 
+        if (submitButton) submitButton.classList.add('hidden-control');
+        if (discardButton) discardButton.classList.add('hidden-control');
+        if (previewButton) previewButton.classList.add('hidden-control');
+    });
+}
+
+async function playAhhh() {
+    // --- NEW Web Audio API Playback Logic ---
+
+    // If audio is already playing, stop it.
+    if (audioContext.state === 'running') {
+        sources.forEach(source => source.stop());
+        sources = [];
+        audioContext.close().then(() => {
+            audioContext = null;
+            if (statusText) statusText.textContent = "Playback stopped. Ready to enable microphone.";
+            if (playButton) playButton.textContent = "Play the Endless Ahhh";
+        });
+        return;
+    }
+
+    // --- DEFINITIVE FIX: Initialize or Resume Audio Context on user gesture ---
+    // This ensures the context is created or resumed by the user's tap, which is required by browsers.
+    if (!audioContext || audioContext.state === 'closed') {
+        try {
+            console.log("LOG: Creating new AudioContext.");
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {
+            if (statusText) statusText.textContent = "Error: Web Audio API is not supported in this browser.";
+            console.error(e);
+            return;
+        }
+    }
+
+    // Resume context if it was suspended (important for mobile)
+    if (audioContext.state === 'suspended') {
+        console.log("LOG: Resuming suspended AudioContext.");
+        await audioContext.resume();
+    }
+
+    if (statusText) statusText.textContent = "Fetching the collective ahhh...";
+    if (playButton) playButton.textContent = "Stop the Endless Ahhh";
+
+    try {
+        // 2. Fetch the list of audio file URLs
+        const playbackModeSwitch = document.getElementById('playback_mode');
+        const mode = playbackModeSwitch.checked ? 'simultaneous' : 'sequential';
+        const response = await fetch(`${PLAYLIST_URL}?order=special`);
+        const urls = await response.json();
+
+        if (!urls || urls.length === 0) {
+            throw new Error("No 'ahhhs' have been submitted yet.");
+        }
+
+        if (statusText) statusText.textContent = `Loading ${urls.length} ahhhs...`;
+
+        // 3. Download and decode all audio files
+        const audioBuffers = await Promise.all(urls.map(async (url) => {
+            const audioResponse = await fetch(url);
+            const arrayBuffer = await audioResponse.arrayBuffer();
+            return await audioContext.decodeAudioData(arrayBuffer);
+        }));
+
+        // 4. Schedule playback
+        let startTime = audioContext.currentTime;
+        if (statusText) statusText.textContent = "Playing the endless ahhh...";
+        
+        function scheduleLoop() {
+            // This function will be called to start the sequence and to loop it.
+            let nextStartTime = audioContext.currentTime;
+            let lastSource = null;
+
+            audioBuffers.forEach((buffer) => {
+                const source = audioContext.createBufferSource();
+                source.buffer = buffer;
+                source.connect(audioContext.destination);
+
+                if (mode === 'simultaneous') {
+                    source.loop = true; // Simple loop for simultaneous mode
+                    source.start(nextStartTime);
+                } else { // Sequential mode
+                    source.start(nextStartTime);
+                    // Schedule the next sound to start 2 seconds before this one ends
+                    nextStartTime += buffer.duration - 2; 
+                    lastSource = source;
+                }
+                sources.push(source); // Keep track of all sources to be able to stop them
+            });
+
+            // For sequential mode, when the last sound finishes, restart the loop.
+            if (mode === 'sequential' && lastSource) {
+                lastSource.onended = () => {
+                    // Only loop if the context is still running (i.e., user hasn't pressed stop)
+                    if (audioContext && audioContext.state === 'running') {
+                        scheduleLoop();
+                    }
+                };
+            }
+        }
+
+        scheduleLoop(); // Start the first loop
+
+    } catch (error) {
+        if (statusText) statusText.textContent = "Playback failed: " + error.message;
+        console.error('Playback Error:', error);
+        if (playButton) playButton.textContent = "Play the Endless Ahhh";
+        // Clean up on failure
+        if (audioContext) {
+            audioContext.close();
+            audioContext = null;
+        }
+    }
+}
+
+function discardAhhh() {
+    recordedChunks = [];
+    if (statusText) statusText.textContent = "Discarded. Ready to record. Recording will begin after 3 second countdown.";
+    
+    if (submitButton) submitButton.classList.add('hidden-control');
+    if (discardButton) discardButton.classList.add('hidden-control');
+    if (previewButton) previewButton.classList.add('hidden-control');
+    if (recordButton) recordButton.disabled = false; 
+}
+
+function unfreezeInterface() {
+    if (recordButton) recordButton.disabled = false;
+    if (stopButton) stopButton.disabled = true;
+    if (enableMicButton) enableMicButton.classList.remove('hidden-control');
+    if (recordButton) recordButton.classList.add('hidden-control');
+    if (statusText) statusText.textContent = "Interface unfrozen. Ready to enable microphone.";
+    console.log("Interface unfrozen.");
+}
+
+function previewAhhh() {
+    if (recordedChunks.length === 0) {
+        if (statusText) statusText.textContent = "Nothing to preview.";
+        return;
+    }
+    if (statusText) statusText.textContent = "Previewing your 'Ahhh'...";
+    // Use the same definitive fix for the preview Blob.
+    const blob = new Blob(recordedChunks, { type: supportedMimeType });
+    const audioUrl = URL.createObjectURL(blob);
+    const audio = new Audio(audioUrl);
+    audio.play()
+        .catch(err => console.error("Preview playback failed:", err));
+    audio.onended = () => {
+        if (statusText) statusText.textContent = "Preview finished. Ready to submit or discard.";
+    };
+}
+
+function resetAhhs() {
+    const secret = secretKeyInput.value;
+    if (!secret) {
+        if (statusText) statusText.textContent = "Please enter the secret key to reset.";
+        return;
+    }
+
+    if (statusText) statusText.textContent = "Attempting to reset all recordings...";
+
+    fetch(RESET_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ secret: secret }),
+    })
+    .then(response => response.text().then(text => {
+        if (!response.ok) {
+            throw new Error(text || 'Failed with status: ' + response.status);
+        }
+        if (statusText) statusText.textContent = "Reset successful: " + text;
+        if (secretKeyInput) secretKeyInput.value = ''; // Clear the input
+    }))
+    .catch(error => {
+        if (statusText) statusText.textContent = "Reset failed: " + error.message;
+        console.error('Reset Error:', error);
+    });
+}
+</script>
     #sound-art-app p {
         color: #555;
         line-height: 1.6;
