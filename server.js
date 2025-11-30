@@ -144,26 +144,21 @@ app.get('/api/master_drone', async (req, res) => { // Make the entire function a
             }
         });
 
-        // --- DEFINITIVE STABILITY FIX: Use the concat protocol for ALL playback. ---
-        // The amix/re-encoding process is failing on Render. The concat protocol avoids re-encoding.
-        // Both 'simultaneous' and 'sequential' modes will now use this stable method.
+        // --- DEFINITIVE STABILITY FIX: Use the concat protocol for all multi-file playback. ---
+        // The amix/re-encoding process is unstable on the Render server environment.
+        // The concat protocol avoids re-encoding and is extremely fast and reliable.
         console.log(`LOG: Generating stable concatenated stream with ${playlist.length} files.`);
 
-        // 1. Create a temporary text file listing all the files to concatenate.
+        // 1. Create a temporary text file listing all the files to be joined.
         const fileList = playlist.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
         const listFilePath = path.join(UPLOAD_DIR, `playlist-${Date.now()}.txt`);
         fs.writeFileSync(listFilePath, fileList);
 
-        // 2. Tell ffmpeg to use the concat protocol. It will read the text file
-        // and stitch the audio files together without re-encoding.
+        // 2. Build and execute the final, clean command.
         command
             .input(listFilePath)
             .inputOptions(['-f concat', '-safe 0'])
-            // Add the 'aac_adtstoasc' bitstream filter to correctly format the AAC stream for the MP4 container.
-            // This is the final fix to prevent the muxing error.
-            .outputOptions(['-c copy', '-bsf:a aac_adtstoasc']);
-
-        command
+            .outputOptions(['-c copy', '-bsf:a aac_adtstoasc']) // Copy the stream and fix headers
             .toFormat('mp4').pipe(res, { end: true });
             
     } catch (error) {
