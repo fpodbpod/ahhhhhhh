@@ -48,7 +48,9 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
     }
 
     const tempUploadPath = req.file.path; // Path to the file in /tmp/uploads
-    const finalPath = path.join(PERSISTENT_STORAGE_PATH, `ahhh-${Date.now()}${path.extname(req.file.originalname)}`);
+    // --- UNIFIED FORMAT STRATEGY: Always save as .webm ---
+    // This ensures all files on disk are in a consistent, reliable format.
+    const finalPath = path.join(PERSISTENT_STORAGE_PATH, `ahhh-${Date.now()}.webm`);
     
     try {
         // We will process the uploaded file to trim silence, then save it back to its final location.
@@ -199,10 +201,9 @@ function trimAndSave(inputPath, outputPath) {
                     '[trim2]areverse[out]',
                 ])
                 // --- FIX: Use the correct codec for the container ---
-                // Use libopus for .webm files and libfdk_aac for .mp4 files.
-                .outputOptions(path.extname(outputPath) === '.webm' 
-                    ? ['-map [out]', '-c:a libopus', '-b:a 160k'] 
-                    : ['-map [out]', '-c:a aac', '-b:a 160k']) // Use standard 'aac' encoder
+                // Always output to WebM with the reliable libopus codec.
+                // ffmpeg will handle converting the source (even if it's MP4/AAC) correctly.
+                .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k'])
                 .save(outputPath)
                 .on('end', async () => { // Make the callback async
                     try {
