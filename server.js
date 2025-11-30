@@ -146,13 +146,18 @@ app.get('/api/master_drone', async (req, res) => { // Make the entire function a
 
         if (req.query.mode === 'sequential') {
             console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
-            const inputs = playlist.map((_, index) => `[${index}:a]`).join('');
-            const filter = `${inputs}concat=n=${playlist.length}:v=0:a=1[a]`;
-            command.complexFilter(filter).outputOptions('-map', '[a]');
+            // Build a filter that normalizes all inputs before concatenating
+            const inputs = playlist.map((_, i) => `[${i}:a]aformat=sample_rates=44100:channel_layouts=stereo[a${i}];`).join('');
+            const concatInputs = playlist.map((_, i) => `[a${i}]`).join('');
+            command.complexFilter(`${inputs}${concatInputs}concat=n=${playlist.length}:v=0:a=1[out]`).outputOptions('-map', '[out]');
         } else {
             console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
             try {
-                command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
+                // --- DEFINITIVE FIX: Normalize all streams before mixing ---
+                // The aformat filter ensures all inputs have the same sample rate and layout,
+                // preventing the "Conversion failed!" error during the mix.
+                const inputs = playlist.map((_, i) => `[${i}:a]`).join('');
+                command.complexFilter(`${inputs}amix=inputs=${playlist.length}:duration=longest`);
             } catch (e) {
                 console.error("AMIX FILTER FAILED:", e);
                 return res.status(500).send('Failed to build audio mix filter.');
