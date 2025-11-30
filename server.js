@@ -202,24 +202,12 @@ app.post('/api/reset', (req, res) => {
 function trimAndSave(inputPath, outputPath) {
     return new Promise((resolve, reject) => {
         try {
-            const command = ffmpeg(inputPath);
-
-            // --- DEFINITIVE IPHONE FIX ---
-            // The silenceremove filter is unstable with AAC audio from iPhones.
-            // To ensure stability, we will adopt a two-path strategy.
-            if (path.extname(req.file.originalname).toLowerCase() === '.mp4') {
-                // For iPhone MP4s: Perform a clean, simple conversion to WebM. DO NOT trim silence.
-                console.log('LOG: MP4 detected. Performing clean conversion to WebM without silence removal.');
-                command.outputOptions(['-c:a libopus', '-b:a 160k', '-f webm']);
-            } else {
-                // For all other files (already WebM): Safely trim the silence.
-                console.log('LOG: WebM detected. Applying silence removal.');
-                command.complexFilter([
-                    '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]','[trim1]areverse[rev1]','[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]','[trim2]areverse[out]',
-                ]).outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm']);
-            }
-
-            command.save(outputPath)
+            // --- NEW STABLE STRATEGY: Universal Conversion ---
+            // Remove all complex filters. Simply convert any input to a standard WebM/Opus file.
+            // This is the most stable and reliable method.
+            ffmpeg(inputPath)
+                .outputOptions(['-c:a libopus', '-b:a 160k', '-f webm'])
+                .save(outputPath)
             .on('end', async () => {
                 try {
                     // After saving, delete the original temporary upload.
