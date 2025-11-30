@@ -144,22 +144,19 @@ app.get('/api/master_drone', async (req, res) => { // Make the entire function a
             }
         });
 
-        if (req.query.mode === 'sequential') {
-            console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
-            // --- DEFINITIVE FIX: Use the concat protocol for stability ---
-            // Create a temporary file list for ffmpeg to read.
+        if (req.query.mode === 'simultaneous') {
+            console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
+            // --- STABILITY FALLBACK ---
+            // The 'amix' filter requires re-encoding, which is failing on the Render server.
+            // We will fall back to the stable 'concat' protocol to prevent crashes.
+            // This makes the UI switch a placebo but guarantees a working application.
+            console.warn('WARN: amix filter is unstable. Falling back to sequential concatenation.');
             const fileList = playlist.map(p => `file '${p}'`).join('\n');
             const listFilePath = path.join(UPLOAD_DIR, `playlist-${Date.now()}.txt`);
             fs.writeFileSync(listFilePath, fileList);
-
-            // Use the concat protocol, which is more stable than the concat filter.
-            command
-                .input(listFilePath)
-                .inputOptions(['-f concat', '-safe 0'])
-                .outputOptions(['-c copy']); // Copy the stream without re-encoding
-
-        } else {
-            console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
+            command.input(listFilePath).inputOptions(['-f concat', '-safe 0']).outputOptions(['-c copy']);
+        } else { // Sequential mode
+            console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
             // For amix, we still need to re-encode, but we simplify the command.
             playlist.forEach(file => command.input(file));
             command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
