@@ -97,8 +97,20 @@
 <div id="sound-art-app">
     <h3>Endless Ahhhhhhh</h3>
     <p style="max-width: 600px; margin: 15px auto; line-height: 1.5;">Add your voice to the Endless Ahhhhhhh. Press record and give an ahhhhhhh of any variety you like. Your ahhhhhhh will be stitched together with all past and future ahhhhhhhs to create a tapestry of ahhhhhhh uniting the people of the world in an endless loop.</p>
+    
+    <!-- Main Action Group -->
+    <div class="controls-group" style="flex-direction: column; gap: 15px; margin-top: 30px; margin-bottom: 20px;">
+        <button id="enableMicButton" class="btn" style="width: 80%; font-size: 1.1em;">Enable Microphone to Begin</button>
+        <button id="playChainButton" class="btn" style="width: 80%; font-size: 1.1em;">Play the Endless Ahhh</button>
+    </div>
+
+    <!-- Playback Mode Toggle -->
+    <div class="toggle-row" style="justify-content: center; margin-bottom: 20px; gap: 10px;">
+        <span>Simultaneous Playback</span>
+        <label class="toggle-switch"><input type="checkbox" id="playback_mode"><span class="toggle-slider"></span></label>
+    </div>
+
     <div class="controls-group">
-        <button id="enableMicButton" class="btn">Enable Microphone</button>
         <button id="recordButton" class="btn hidden-control">Start Recording</button>
         <button class="hidden-control btn" disabled="" id="stopButton">Stop Recording</button>
     </div>
@@ -107,15 +119,6 @@
         <button class="hidden-control btn" id="previewButton">Preview</button>
         <button class="hidden-control btn" disabled="" id="submitButton">Submit to Collective</button>
         <button class="hidden-control btn" disabled="" id="discardButton">Discard</button>
-    </div>
-
-    <div class="controls-group" style="margin-top: 30px;">
-        <button id="playChainButton" class="btn" style="width: 60%; font-size: 1.1em;">Play the Endless Ahhh</button>
-    </div>
-    <!-- Simplified Playback Mode Toggle -->
-    <div class="toggle-row" style="justify-content: center; margin-top: 15px; gap: 10px;">
-        <span>Simultaneous Playback</span>
-        <label class="toggle-switch"><input type="checkbox" id="playback_mode"><span class="toggle-slider"></span></label>
     </div>
     <div class="footer-controls">
         <input type="password" id="secretKeyInput" placeholder="secret key">
