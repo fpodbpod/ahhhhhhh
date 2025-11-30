@@ -134,9 +134,9 @@ app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callb
             const command = ffmpeg();
             playlist.forEach(file => command.input(file));
 
-            // --- UNIFIED FORMAT FIX: Always stream WebM, matching the file format on disk. ---
-            // This avoids on-the-fly conversion, which is causing the "Conversion failed!" error.
-            res.setHeader('Content-Type', 'audio/webm');
+            // --- FINAL COMPATIBILITY FIX: Always stream MP4 for universal playback. ---
+            // This matches the AAC encoder settings below.
+            res.setHeader('Content-Type', 'audio/mp4');
 
             command.on('error', (err) => {
                 console.error('FFmpeg streaming error:', err.message);
@@ -163,7 +163,7 @@ app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callb
                     '-profile:a aac_he_v2',  // Use High-Efficiency AAC v2 Profile
                     '-ar 44100'            // Set a standard audio sample rate
                 ])
-                .toFormat('webm').pipe(res, { end: true });
+                .toFormat('mp4').pipe(res, { end: true });
         });
     } catch (error) {
         console.error('Error serving master drone:', error);
