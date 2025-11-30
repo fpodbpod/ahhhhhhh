@@ -382,12 +382,10 @@ function submitAhhh() {
 async function playAhhh() {
     // --- NEW Web Audio API Playback Logic ---
 
-    // If audio is already playing, stop it and return.
+    // --- STOP LOGIC ---
     if (audioContext && audioContext.state === 'running') {
         sources.forEach(source => source.stop());
         sources = [];
-        // --- DEFINITIVE FIX: Suspend the context instead of closing it. ---
-        // This is more reliable on mobile and prevents the audio engine from getting into a zombie state.
         audioContext.suspend().then(() => {
             if (statusText) statusText.textContent = "Playback paused. Ready to enable microphone.";
             if (playButton) playButton.textContent = "Play the Endless Ahhh";
@@ -395,8 +393,8 @@ async function playAhhh() {
         return;
     }
 
-    // --- DEFINITIVE FIX: Ensure we have a running AudioContext BEFORE proceeding ---
-    // 1. Create the context if it doesn't exist.
+    // --- PLAY LOGIC ---
+    // 1. Create the AudioContext if it doesn't exist. This must be in a user gesture.
     if (!audioContext) {
         try {
             console.log("LOG: Creating new AudioContext.");
@@ -408,81 +406,73 @@ async function playAhhh() {
         }
     }
 
-    // 2. If the context is suspended (from a previous "stop"), resume it.
-    if (audioContext.state === 'suspended') {
-        console.log("LOG: Resuming suspended AudioContext.");
-        await audioContext.resume();
-    }
+    // 2. Resume the context if it's suspended. This is asynchronous.
+    // The ENTIRE playback logic must be nested inside the .then() to guarantee the context is 'running'.
+    audioContext.resume().then(async () => {
+        console.log("LOG: AudioContext is now running. Proceeding with playback.");
 
-    if (statusText) statusText.textContent = "Fetching the collective ahhh...";
-    if (playButton) playButton.textContent = "Stop the Endless Ahhh";
+        if (statusText) statusText.textContent = "Fetching the collective ahhh...";
+        if (playButton) playButton.textContent = "Stop the Endless Ahhh";
 
-    try {
-        // 2. Fetch the list of audio file URLs
-        const playbackModeSwitch = document.getElementById('playback_mode');
-        const mode = playbackModeSwitch.checked ? 'simultaneous' : 'sequential';
-        const response = await fetch(`${PLAYLIST_URL}?order=special`);
-        const urls = await response.json();
+        try {
+            const playbackModeSwitch = document.getElementById('playback_mode');
+            const mode = playbackModeSwitch.checked ? 'simultaneous' : 'sequential';
+            const response = await fetch(`${PLAYLIST_URL}?order=special`);
+            const urls = await response.json();
 
-        if (!urls || urls.length === 0) {
-            throw new Error("No 'ahhhs' have been submitted yet.");
-        }
-
-        if (statusText) statusText.textContent = `Loading ${urls.length} ahhhs...`;
-
-        // 3. Download and decode all audio files
-        const audioBuffers = await Promise.all(urls.map(async (url) => {
-            const audioResponse = await fetch(url);
-            const arrayBuffer = await audioResponse.arrayBuffer();
-            return await audioContext.decodeAudioData(arrayBuffer);
-        }));
-
-        // 4. Schedule playback
-        let startTime = audioContext.currentTime;
-        if (statusText) statusText.textContent = "Playing the endless ahhh...";
-        
-        function scheduleLoop() {
-            // This function will be called to start the sequence and to loop it.
-            let nextStartTime = audioContext.currentTime;
-            let lastSource = null;
-
-            audioBuffers.forEach((buffer) => {
-                const source = audioContext.createBufferSource();
-                source.buffer = buffer;
-                source.connect(audioContext.destination);
-
-                if (mode === 'simultaneous') {
-                    source.loop = true; // Simple loop for simultaneous mode
-                    source.start(nextStartTime);
-                } else { // Sequential mode
-                    source.start(nextStartTime);
-                    // Schedule the next sound to start 2 seconds before this one ends
-                    nextStartTime += buffer.duration - 2; 
-                    lastSource = source;
-                }
-                sources.push(source); // Keep track of all sources to be able to stop them
-            });
-
-            // For sequential mode, when the last sound finishes, restart the loop.
-            if (mode === 'sequential' && lastSource) {
-                lastSource.onended = () => {
-                    // Only loop if the context is still running (i.e., user hasn't pressed stop)
-                    if (audioContext && audioContext.state === 'running') {
-                        scheduleLoop();
-                    }
-                };
+            if (!urls || urls.length === 0) {
+                throw new Error("No 'ahhhs' have been submitted yet.");
             }
+
+            if (statusText) statusText.textContent = `Loading ${urls.length} ahhhs...`;
+
+            const audioBuffers = await Promise.all(urls.map(async (url) => {
+                const audioResponse = await fetch(url);
+                const arrayBuffer = await audioResponse.arrayBuffer();
+                return await audioContext.decodeAudioData(arrayBuffer);
+            }));
+
+            if (statusText) statusText.textContent = "Playing the endless ahhh...";
+            
+            function scheduleLoop() {
+                let nextStartTime = audioContext.currentTime;
+                let lastSource = null;
+
+                audioBuffers.forEach((buffer) => {
+                    const source = audioContext.createBufferSource();
+                    source.buffer = buffer;
+                    source.connect(audioContext.destination);
+
+                    if (mode === 'simultaneous') {
+                        source.loop = true;
+                        source.start(nextStartTime);
+                    } else {
+                        source.start(nextStartTime);
+                        nextStartTime += buffer.duration - 2; 
+                        lastSource = source;
+                    }
+                    sources.push(source);
+                });
+
+                if (mode === 'sequential' && lastSource) {
+                    lastSource.onended = () => {
+                        if (audioContext && audioContext.state === 'running') {
+                            scheduleLoop();
+                        }
+                    };
+                }
+            }
+
+            scheduleLoop();
+
+        } catch (error) {
+            if (statusText) statusText.textContent = "Playback failed: " + error.message;
+            console.error('Playback Error:', error);
+            if (playButton) playButton.textContent = "Play the Endless Ahhh";
+            // If fetching/decoding fails, suspend the context so the user can try again.
+            if (audioContext) audioContext.suspend();
         }
-
-        scheduleLoop(); // Start the first loop
-
-    } catch (error) {
-        if (statusText) statusText.textContent = "Playback failed: " + error.message;
-        console.error('Playback Error:', error);
-        if (playButton) playButton.textContent = "Play the Endless Ahhh";
-        // Clean up on failure
-        // Do not close the context on a simple playback error, allow the user to try again.
-    }
+    });
 }
 
 function discardAhhh() {
