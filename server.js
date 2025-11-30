@@ -3,7 +3,6 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors'); // Import the cors package
-const ffmpeg = require('fluent-ffmpeg');
 
 const app = express();
 // Render assigns the port dynamically, so we use process.env.PORT
@@ -46,124 +45,53 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
     if (!req.file) {
         return res.status(400).send('No audio file uploaded.');
     }
-
-    const tempUploadPath = req.file.path; // Path to the file in /tmp/uploads
-    // --- NEW UNIFIED FORMAT STRATEGY: Always save as .mp4 ---
-    // This ensures all files on disk are in the universally compatible MP4/AAC format.
-    const finalPath = path.join(PERSISTENT_STORAGE_PATH, `ahhh-${Date.now()}.mp4`);
     
     try {
-        // We will process the uploaded file to trim silence, then save it back to its final location.
-        console.log(`Processing file from ${tempUploadPath} to ${finalPath}`);
-        await trimAndSave(tempUploadPath, finalPath, req); // Pass the 'req' object
-        console.log(`File successfully saved to persistent storage: ${finalPath}`);
+        // --- NEW "DUMB SERVER" STRATEGY ---
+        // Simply move the uploaded file directly to persistent storage. No ffmpeg, no processing.
+        const tempPath = req.file.path;
+        const finalName = `ahhh-${Date.now()}${path.extname(req.file.originalname)}`;
+        const finalPath = path.join(PERSISTENT_STORAGE_PATH, finalName);
+
+        fs.renameSync(tempPath, finalPath);
+        console.log(`LOG: File saved directly to ${finalPath}`);
         res.status(200).json({ message: 'Successfully added to the communal ahhh!', status: 'processed' });
     } catch (error) {
-        console.error('Error processing upload:', error);
-        // Clean up the final file if it was partially created on failure.
-        if (fs.existsSync(finalPath)) {
-            fs.unlinkSync(finalPath);
-        }
+        console.error('Error saving upload:', error);
         res.status(500).json({ message: 'Failed to process the new recording.', error: error.message });
     }
 });
 
-// --- API Endpoint 2: Serve the Master Drone (For Playback) ---
-app.get('/api/master_drone', async (req, res) => { // Make the entire function async
+// --- NEW API Endpoint: Serve the list of audio files ---
+app.get('/api/playlist', (req, res) => {
     try {
-        const initialFiles = fs.readdirSync(PERSISTENT_STORAGE_PATH)
-            .filter(file => file.endsWith('.mp4')) // We only look for .mp4 files now
-            .map(file => {
-                const filePath = path.join(PERSISTENT_STORAGE_PATH, file);
-                try {
-                    const stats = fs.statSync(filePath);
-                    return { name: file, path: filePath, time: stats.mtime.getTime(), size: stats.size };
-                } catch (e) {
-                    console.error(`Could not stat file ${filePath}, skipping. Error: ${e.message}`);
-                    return null;
-                }
-            })
-            .filter(file => file && file.size > 400) // Use the stricter 400-byte filter
-            .sort((a, b) => b.time - a.time);
-
-        // --- DEFINITIVE FIX: Use async/await to wait for validation ---
-        const validationPromises = initialFiles.map(file => {
-            return new Promise((resolve) => {
-                ffmpeg.ffprobe(file.path, (err, metadata) => {
-                    if (err || !metadata.streams.some(s => s.codec_type === 'audio')) {
-                        console.warn(`WARN: Skipping invalid/corrupt file: ${file.name}`);
-                        resolve(null);
-                    } else {
-                        resolve(file);
-                    }
-                });
-            });
+        const files = fs.readdirSync(PERSISTENT_STORAGE_PATH).filter(f => f.endsWith('.mp4') || f.endsWith('.webm'));
+        
+        // Sort by creation time (newest first) based on the timestamp in the filename
+        files.sort((a, b) => {
+            const timeA = parseInt(a.split('-')[1]);
+            const timeB = parseInt(b.split('-')[1]);
+            return timeB - timeA;
         });
 
-        const validatedFiles = await Promise.all(validationPromises);
-        const playlistFiles = validatedFiles.filter(Boolean); // This now contains only valid files.
-
-        console.log(`LOG: Found ${playlistFiles.length} valid recordings to play.`);
-
-        if (playlistFiles.length === 0) {
-            return res.status(404).send('The communal ahhh has not started yet!');
-        }
-
-        if (playlistFiles.length === 1) {
-            const singleFilePath = playlistFiles[0].path;
-            console.log(`Serving single file: ${singleFilePath}`);
-            const mimeType = path.extname(singleFilePath) === '.mp4' ? 'audio/mp4' : 'audio/webm';
-            res.setHeader('Content-Type', mimeType);
-            return res.sendFile(singleFilePath);
-        }
-
-        let playlist = [];
-        if (req.query.order === 'special') {
-            const mostRecent = playlistFiles.shift();
-            const others = playlistFiles;
-            for (let i = others.length - 1; i > 0; i--) {
+        // Special ordering: most recent first, then the rest shuffled
+        if (req.query.order === 'special' && files.length > 1) {
+            const mostRecent = files.shift();
+            // Fisher-Yates shuffle
+            for (let i = files.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
-                [others[i], others[j]] = [others[j], others[i]];
+                [files[i], files[j]] = [files[j], files[i]];
             }
-            playlist = [mostRecent, ...others].map(f => f.path);
-        } else {
-            playlist = playlistFiles.reverse().map(f => f.path);
+            files.unshift(mostRecent);
         }
 
-        const command = ffmpeg();
-        playlist.forEach(file => command.input(file));
-
-        // --- FINAL, DEFINITIVE IOS PLAYBACK FIX ---
-        // Serve the final stream as MP4/AAC, the only format universally supported by all browsers, especially Safari.
-        res.setHeader('Content-Type', 'audio/mp4');
-
-        command.on('error', (err) => {
-            console.error('FFmpeg streaming error:', err.message);
-            if (!res.headersSent) {
-                res.status(500).send('Error during audio concatenation.');
-            }
-        });
-
-        // --- DEFINITIVE STABILITY FIX: Use the concat protocol for all multi-file playback. ---
-        // The amix/re-encoding process is unstable on the Render server environment.
-        // The concat protocol avoids re-encoding and is extremely fast and reliable.
-        console.log(`LOG: Generating stable concatenated stream with ${playlist.length} files.`);
-
-        // 1. Create a temporary text file listing all the files to be joined.
-        const fileList = playlist.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
-        const listFilePath = path.join(UPLOAD_DIR, `playlist-${Date.now()}.txt`);
-        fs.writeFileSync(listFilePath, fileList);
-
-        // 2. Build and execute the final, clean command.
-        command
-            .input(listFilePath)
-            .inputOptions(['-f concat', '-safe 0'])
-            .outputOptions(['-c copy', '-bsf:a aac_adtstoasc']) // Copy the stream and fix headers
-            .toFormat('mp4').pipe(res, { end: true });
-            
+        // Serve the audio files themselves from the persistent storage directory
+        app.use('/audio', express.static(PERSISTENT_STORAGE_PATH));
+        const urls = files.map(file => `/audio/${file}`);
+        res.json(urls);
     } catch (error) {
-        console.error('Error serving master drone:', error);
-        res.status(500).send('Could not generate the communal ahhh.');
+        console.error('Error fetching playlist:', error);
+        res.status(500).json({ error: 'Could not fetch playlist.' });
     }
 });
 
@@ -193,52 +121,6 @@ app.post('/api/reset', (req, res) => {
         res.status(500).send('An error occurred while trying to reset the recordings.');
     }
 });
-
-// --- Audio Processing Helper Function ---
-function trimAndSave(inputPath, outputPath, req) { // Add 'req' as a parameter
-    return new Promise((resolve, reject) => {
-        try {
-            const command = ffmpeg(inputPath);
-            
-            // --- NEW STRATEGY: Convert ALL uploads to a standard MP4/AAC format. ---
-            // This includes silence removal, which is more stable when the final output is AAC.
-            command.complexFilter([
-                '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]','[trim1]areverse[rev1]','[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]','[trim2]areverse[out]',
-            ]).outputOptions(['-map [out]', '-c:a aac', '-b:a 192k']);
-            
-            command.save(outputPath)
-            .on('end', async () => {
-                try {
-                    // After saving, delete the original temporary upload.
-                    if (fs.existsSync(inputPath)) {
-                        fs.unlinkSync(inputPath);
-                    }
-
-                    // Asynchronously get file stats.
-                    const stats = await fs.promises.stat(outputPath);
-                    console.log(`LOG: Processed file saved. Size: ${stats.size} bytes.`);
-
-                    if (stats.size < 400) { // Increased threshold for safety
-                        // If the file is unreasonably small, it's corrupt.
-                        await fs.promises.unlink(outputPath);
-                        return reject(new Error(`Processed file was too small (${stats.size} bytes) and was discarded.`));
-                    }
-                    resolve(); // File is valid, resolve the promise.
-                } catch (statError) {
-                    reject(new Error(`Failed to verify output file: ${statError.message}`));
-                }
-            })
-            .on('error', (err) => {
-                reject(new Error(`FFmpeg processing error: ${err.message}`));
-            });
-
-        } catch (error) {
-            // This outer catch will handle any synchronous errors during ffmpeg setup.
-            reject(new Error(`FFmpeg setup failed: ${error.message}`));
-        }
-    });
-}
-
 
 // --- Start Server ---
 app.listen(port, () => {
