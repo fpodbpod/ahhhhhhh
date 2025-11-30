@@ -393,26 +393,28 @@ async function playAhhh() {
         return;
     }
 
-    // --- PLAY LOGIC ---
-    // 1. Create the AudioContext if it doesn't exist. This must be in a user gesture.
-    if (!audioContext) {
-        try {
+    // --- DEFINITIVE PLAYBACK INITIALIZATION ---
+    // This robust sequence ensures the AudioContext is created and resumed correctly on the first click.
+    try {
+        // 1. Create the context if it doesn't exist. This must be inside the user's click event.
+        if (!audioContext) {
             console.log("LOG: Creating new AudioContext.");
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        } catch (e) {
-            if (statusText) statusText.textContent = "Error: Web Audio API is not supported in this browser.";
-            console.error(e);
-            return;
         }
-    }
 
-    // --- DEFINITIVE FIX: Await the resume() promise BEFORE proceeding ---
-    // This guarantees the AudioContext is in a 'running' state.
-    if (audioContext.state === 'suspended') {
-        await audioContext.resume();
+        // 2. If the context is suspended (which it will be on first creation on mobile), resume it.
+        // We await this promise to ensure it's fully 'running' before we proceed.
+        if (audioContext.state === 'suspended') {
+            console.log("LOG: Resuming suspended AudioContext.");
+            await audioContext.resume();
+        }
+        console.log("LOG: AudioContext is now running. Proceeding with playback.");
+    } catch (e) {
+        if (statusText) statusText.textContent = "Error: Could not initialize audio playback.";
+        console.error("AudioContext initialization failed:", e);
+        if (playButton) playButton.textContent = "Play the Endless Ahhh";
+        return;
     }
-
-    console.log("LOG: AudioContext is now running. Proceeding with playback.");
 
     if (statusText) statusText.textContent = "Fetching the collective ahhh...";
     if (playButton) playButton.textContent = "Stop the Endless Ahhh";
