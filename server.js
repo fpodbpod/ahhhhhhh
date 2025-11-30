@@ -148,14 +148,10 @@ app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callb
 
             if (req.query.mode === 'sequential') {
                 console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
-                // --- RE-INTRODUCE CROSSFADING ---
-                // Build a filter chain that crossfades each file into the next.
-                const filter = playlist.slice(1).reduce((acc, _, index) => {
-                    const input1 = index === 0 ? '[0:a]' : `[a${index - 1}]`;
-                    const input2 = `[${index + 1}:a]`;
-                    return `${acc}${input1}${input2}acrossfade=d=2[a${index}];`;
-                }, '').slice(0, -1); // Build chain and remove final semicolon
-                command.complexFilter(filter).outputOptions('-map', `[a${playlist.length - 2}]`);
+                // --- STABILITY FIX: Use the simpler 'concat' filter instead of 'acrossfade' ---
+                const inputs = playlist.map((_, index) => `[${index}:a]`).join('');
+                const filter = `${inputs}concat=n=${playlist.length}:v=0:a=1[a]`;
+                command.complexFilter(filter).outputOptions('-map', '[a]');
             } else {
                 console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
                 try {
@@ -167,7 +163,10 @@ app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callb
             }
 
             command
-                .outputOptions('-movflags faststart') // Optimizes the stream for web playback
+                .outputOptions([
+                    '-movflags faststart', // Optimizes the stream for web playback
+                    '-b:a 192k'            // Set an explicit audio bitrate for compatibility
+                ])
                 .toFormat('webm').pipe(res, { end: true });
         });
     } catch (error) {
