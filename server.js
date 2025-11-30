@@ -203,7 +203,7 @@ function trimAndSave(inputPath, outputPath) {
                 // --- FIX: Use the correct codec for the container ---
                 // Always output to WebM with the reliable libopus codec.
                 // ffmpeg will handle converting the source (even if it's MP4/AAC) correctly.
-                .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k'])
+                .outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm'])
                 .save(outputPath)
                 .on('end', async () => { // Make the callback async
                     try {
