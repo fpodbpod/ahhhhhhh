@@ -436,18 +436,41 @@ async function playAhhh() {
         // 4. Schedule playback
         let startTime = audioContext.currentTime;
         if (statusText) statusText.textContent = "Playing the endless ahhh...";
+        
+        function scheduleLoop() {
+            // This function will be called to start the sequence and to loop it.
+            let nextStartTime = audioContext.currentTime;
+            let lastSource = null;
 
-        audioBuffers.forEach((buffer, index) => {
-            const source = audioContext.createBufferSource();
-            source.buffer = buffer;
-            source.connect(audioContext.destination);
-            source.start(startTime);
-            sources.push(source); // Keep track of sources to stop them later
+            audioBuffers.forEach((buffer) => {
+                const source = audioContext.createBufferSource();
+                source.buffer = buffer;
+                source.connect(audioContext.destination);
 
-            if (mode === 'sequential') {
-                startTime += buffer.duration - 2; // Crossfade by overlapping for 2 seconds
+                if (mode === 'simultaneous') {
+                    source.loop = true; // Simple loop for simultaneous mode
+                    source.start(nextStartTime);
+                } else { // Sequential mode
+                    source.start(nextStartTime);
+                    // Schedule the next sound to start 2 seconds before this one ends
+                    nextStartTime += buffer.duration - 2; 
+                    lastSource = source;
+                }
+                sources.push(source); // Keep track of all sources to be able to stop them
+            });
+
+            // For sequential mode, when the last sound finishes, restart the loop.
+            if (mode === 'sequential' && lastSource) {
+                lastSource.onended = () => {
+                    // Only loop if the context is still running (i.e., user hasn't pressed stop)
+                    if (audioContext && audioContext.state === 'running') {
+                        scheduleLoop();
+                    }
+                };
             }
-        });
+        }
+
+        scheduleLoop(); // Start the first loop
 
     } catch (error) {
         if (statusText) statusText.textContent = "Playback failed: " + error.message;
