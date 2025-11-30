@@ -319,9 +319,17 @@ function submitAhhh() {
     if (discardButton) discardButton.disabled = true;
     if (recordButton) recordButton.disabled = true; 
     
-    // Let the browser infer the MIME type from the chunks themselves.
-    // This is more robust on iOS, which can be picky about type mismatches.
-    const blob = new Blob(recordedChunks);
+    let blob;
+    try {
+        // First, try the most specific and correct method.
+        const blobOptions = { type: recordedChunks[0].type };
+        blob = new Blob(recordedChunks, blobOptions);
+    } catch (e) {
+        // If the specific method fails (a known Safari bug), fall back to the simpler method.
+        console.warn("Blob creation with specific type failed, falling back to inferred type. Error:", e.message);
+        blob = new Blob(recordedChunks);
+    }
+
     const formData = new FormData();
     formData.append('audio', blob, `my-ahhh${fileExtension}`);
     
@@ -420,8 +428,15 @@ function previewAhhh() {
         return;
     }
     if (statusText) statusText.textContent = "Previewing your 'Ahhh'...";
-    // Let the browser infer the MIME type for the preview blob as well.
-    const blob = new Blob(recordedChunks);
+    // Use the same robust blob creation for previews.
+    let blob;
+    try {
+        const blobOptions = { type: recordedChunks[0].type };
+        blob = new Blob(recordedChunks, blobOptions);
+    } catch (e) {
+        blob = new Blob(recordedChunks);
+    }
+
     const audioUrl = URL.createObjectURL(blob);
     const audio = new Audio(audioUrl);
     audio.play()
