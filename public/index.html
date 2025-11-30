@@ -98,7 +98,8 @@
     <h3>Endless Ahhhhhhh</h3>
     <p style="max-width: 600px; margin: 15px auto; line-height: 1.5;">Add your voice to the Endless Ahhhhhhh. Press record and give an ahhhhhhh of any variety you like. Your ahhhhhhh will be stitched together with all past and future ahhhhhhhs to create a tapestry of ahhhhhhh uniting the people of the world in an endless loop.</p>
     <div class="controls-group">
-        <button id="recordButton" class="btn">Start Recording</button>
+        <button id="enableMicButton" class="btn">Enable Microphone</button>
+        <button id="recordButton" class="btn hidden-control">Start Recording</button>
         <button class="hidden-control btn" disabled="" id="stopButton">Stop Recording</button>
     </div>
     <p id="status">Ready to record.</p>
@@ -129,6 +130,9 @@ var recordedChunks = [];
 var audioStream = null; 
 var masterPlaybackAudio = null; // To control the master drone playback
 
+var supportedMimeType = 'audio/webm'; // Default to webm
+var fileExtension = '.webm';
+
 // Use relative URLs now that the frontend is served from the same domain as the API.
 const SERVER_URL = '/api/upload'; 
 const MASTER_PLAYBACK_URL = '/api/master_drone';
@@ -146,6 +150,7 @@ var statusText;
 var secretKeyInput;
 var resetButton;
 
+var enableMicButton; // New button reference
 // --- 3. Function to Initialize the Application (Runs AFTER Page Loads) ---
 function waitForAppAndInitialize() {
     const appContainer = document.getElementById('sound-art-app');
@@ -153,6 +158,7 @@ function waitForAppAndInitialize() {
         console.log("LOG: App container found. Initializing listeners.");
         // --- Assign elements ---
         recordButton = document.getElementById('recordButton'); 
+        enableMicButton = document.getElementById('enableMicButton');
         stopButton = document.getElementById('stopButton'); 
         unfreezeButton = document.getElementById('unfreezeButton');
         previewButton = document.getElementById('previewButton');
@@ -165,6 +171,7 @@ function waitForAppAndInitialize() {
 
         // --- Attach listeners ---
         if (recordButton) recordButton.addEventListener('click', startRecording);
+        if (enableMicButton) enableMicButton.addEventListener('click', getMicrophoneAccess);
         if (stopButton) stopButton.addEventListener('click', stopRecording);
         if (submitButton) submitButton.addEventListener('click', submitAhhh);
         if (discardButton) discardButton.addEventListener('click', discardAhhh);
@@ -173,7 +180,7 @@ function waitForAppAndInitialize() {
         if (previewButton) previewButton.addEventListener('click', previewAhhh);
         if (resetButton) resetButton.addEventListener('click', resetAhhs);
 
-        if (statusText) statusText.textContent = "Press 'Start Recording' to request microphone access. Recording will begin after 3 second countdown.";
+        if (statusText) statusText.textContent = "Press 'Enable Microphone' to begin.";
     } else {
         console.log("LOG: App container not found yet. Retrying in 100ms.");
         setTimeout(waitForAppAndInitialize, 100); // Retry after a short delay
@@ -203,7 +210,21 @@ async function getMicrophoneAccess() {
             return null; // Return null on failure
         }
     }
-    mediaRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm' });
+
+    // --- NEW: Check for supported mimeType for iOS compatibility ---
+    if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        supportedMimeType = 'audio/mp4';
+        fileExtension = '.mp4';
+        console.log("LOG: Using 'audio/mp4' for recording.");
+    } else {
+        supportedMimeType = 'audio/webm';
+        fileExtension = '.webm';
+        console.log("LOG: Using 'audio/webm' for recording.");
+    }
+    // -------------------------------------------------------------
+
+    try {
+        mediaRecorder = new MediaRecorder(audioStream, { mimeType: supportedMimeType });
         mediaRecorder.ondataavailable = function(e) {
             recordedChunks.push(e.data);
         };
@@ -218,6 +239,19 @@ async function getMicrophoneAccess() {
             if (discardButton) discardButton.disabled = false;
         };
         console.log("LOG: Microphone stream acquired successfully.");
+
+        // --- NEW: Update UI after getting permission ---
+        if (statusText) statusText.textContent = "Microphone enabled. Press 'Start Recording'.";
+        if (enableMicButton) enableMicButton.classList.add('hidden-control');
+        if (recordButton) recordButton.classList.remove('hidden-control');
+        // ------------------------------------------------
+
+    } catch (e) {
+        if (statusText) statusText.textContent = "ERROR: Could not create recorder. Your browser may be unsupported.";
+        console.error("ERROR: Failed to create MediaRecorder:", e);
+        return null;
+    }
+
     return audioStream; // Return the stream to indicate success
 }
 
@@ -228,14 +262,18 @@ function sleep(ms) {
 async function startRecording() {
     // Disable button immediately to prevent multiple clicks
     if (recordButton) recordButton.disabled = true;
-
-    const stream = await getMicrophoneAccess();
     
-    if (!stream || !mediaRecorder) {
-        if (statusText) statusText.textContent = "ERROR: Cannot start recording without microphone access.";
+    // The stream and recorder should already exist from getMicrophoneAccess
+    if (!mediaRecorder || mediaRecorder.state !== 'inactive') {
+        if (statusText) statusText.textContent = "ERROR: Recorder not ready. Please refresh.";
         if (recordButton) recordButton.disabled = false; // Re-enable on failure
         return;
     }
+
+    // --- START RECORDING IMMEDIATELY ---
+    recordedChunks = [];
+    mediaRecorder.start();
+    if (stopButton) stopButton.disabled = false;
 
     // --- Countdown Logic ---
     if (statusText) statusText.textContent = "Get ready...";
@@ -247,10 +285,7 @@ async function startRecording() {
     if (statusText) statusText.textContent = "1...";
     await sleep(1000);
 
-    recordedChunks = [];
-    mediaRecorder.start();
     if (statusText) statusText.textContent = "Recording... (Max 5 seconds)";
-    if (stopButton) stopButton.disabled = false;
     
     // Hide post-recording controls while recording
     if (submitButton) submitButton.classList.add('hidden-control');
@@ -284,9 +319,9 @@ function submitAhhh() {
     if (discardButton) discardButton.disabled = true;
     if (recordButton) recordButton.disabled = true; 
     
-    const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+    const blob = new Blob(recordedChunks, { type: supportedMimeType });
     const formData = new FormData();
-    formData.append('audio', blob, 'my-ahhh.webm');
+    formData.append('audio', blob, `my-ahhh${fileExtension}`);
     
     fetch(SERVER_URL, {
         method: 'POST',
@@ -370,9 +405,9 @@ function discardAhhh() {
 function unfreezeInterface() {
     if (recordButton) recordButton.disabled = false;
     if (stopButton) stopButton.disabled = true;
-    if (submitButton) submitButton.disabled = true;
-    if (discardButton) discardButton.disabled = true;
-    if (statusText) statusText.textContent = "Interface unfrozen. Ready to record. Recording will begin after 3 second countdown.";
+    if (enableMicButton) enableMicButton.classList.remove('hidden-control');
+    if (recordButton) recordButton.classList.add('hidden-control');
+    if (statusText) statusText.textContent = "Interface unfrozen. Ready to enable microphone.";
     console.log("Interface unfrozen.");
 }
 
@@ -382,7 +417,7 @@ function previewAhhh() {
         return;
     }
     if (statusText) statusText.textContent = "Previewing your 'Ahhh'...";
-    const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+    const blob = new Blob(recordedChunks, { type: supportedMimeType });
     const audioUrl = URL.createObjectURL(blob);
     const audio = new Audio(audioUrl);
     audio.play()
