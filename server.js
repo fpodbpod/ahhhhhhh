@@ -207,18 +207,17 @@ function trimAndSave(inputPath, outputPath) {
             // --- NEW: Bulletproof iPhone Conversion Logic ---
             // If the input is an MP4, we do a clean conversion to WebM first.
             // This is more reliable than trying to trim the AAC stream directly.
-            if (path.extname(inputPath).toLowerCase() === '.mp4') {
-                console.log('LOG: MP4 detected. Performing clean conversion to WebM before trimming.');
-                command.outputOptions('-c:a libopus', '-b:a 160k', '-f webm');
-            } else {
-                // For webm inputs, we can apply the silence trim directly.
-                command.complexFilter([
-                    '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]',
-                    '[trim1]areverse[rev1]',
-                    '[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]',
-                    '[trim2]areverse[out]',
-                ]).outputOptions(['-map [out]', '-c:a libopus', '-b:a 160k', '-f webm']);
-            }
+            // This new logic applies to ALL inputs to ensure maximum consistency and stability.
+            // It first decodes the audio, then trims silence, then re-encodes to our standard format.
+            // This is the most robust method for handling potentially incompatible source files.
+            command.complexFilter([
+                '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]',
+                '[trim1]areverse[rev1]',
+                '[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]',
+                '[trim2]areverse[out]',
+            ]).outputOptions([
+                '-map [out]', '-c:a libopus', '-b:a 160k', '-f webm'
+            ]);
             // -------------------------------------------------
 
             command.save(outputPath)
