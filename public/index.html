@@ -134,8 +134,8 @@ var supportedMimeType = 'audio/webm'; // Default to webm
 var fileExtension = '.webm';
 
 // Use relative URLs now that the frontend is served from the same domain as the API.
-const SERVER_URL = '/api/upload'; 
-const MASTER_PLAYBACK_URL = '/api/master_drone';
+const UPLOAD_URL = '/api/upload'; 
+const PLAYLIST_URL = '/api/playlist';
 const RESET_URL = '/api/reset';
 
 // --- 2. Element References ---
@@ -151,6 +151,11 @@ var secretKeyInput;
 var resetButton;
 
 var enableMicButton; // New button reference
+
+// --- Web Audio API Globals ---
+let audioContext;
+let sources = []; // To hold the audio buffer sources
+
 // --- 3. Function to Initialize the Application (Runs AFTER Page Loads) ---
 function waitForAppAndInitialize() {
     const appContainer = document.getElementById('sound-art-app');
@@ -344,8 +349,8 @@ function submitAhhh() {
     const blob = new Blob(recordedChunks, { type: supportedMimeType });
     const formData = new FormData();
     formData.append('audio', blob, `my-ahhh${fileExtension}`);
-    
-    fetch(SERVER_URL, {
+
+    fetch(UPLOAD_URL, {
         method: 'POST',
         body: formData
     })
@@ -374,45 +379,83 @@ function submitAhhh() {
     });
 }
 
-function playAhhh() {
-    if (masterPlaybackAudio && !masterPlaybackAudio.paused) {
-        masterPlaybackAudio.pause();
-        masterPlaybackAudio.currentTime = 0;
-        if (statusText) statusText.textContent = "Playback stopped. Ready to record. Recording will begin after 3 second countdown.";
-        if (playButton) playButton.textContent = "Play the Endless Ahhh";
+async function playAhhh() {
+    // --- NEW Web Audio API Playback Logic ---
+
+    // 1. Initialize Audio Context on first play
+    if (!audioContext) {
+        try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {
+            if (statusText) statusText.textContent = "Error: Web Audio API is not supported in this browser.";
+            console.error(e);
+            return;
+        }
+    }
+
+    // If audio is already playing, stop it.
+    if (audioContext.state === 'running') {
+        sources.forEach(source => source.stop());
+        sources = [];
+        audioContext.close().then(() => {
+            audioContext = null;
+            if (statusText) statusText.textContent = "Playback stopped. Ready to enable microphone.";
+            if (playButton) playButton.textContent = "Play the Endless Ahhh";
+        });
         return;
     }
 
-    if (statusText) statusText.textContent = "Attempting to play the endless ahhh...";
+    // Resume context if it was suspended (important for mobile)
+    if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+    }
+
+    if (statusText) statusText.textContent = "Fetching the collective ahhh...";
     if (playButton) playButton.textContent = "Stop the Endless Ahhh";
 
-    // Check the state of the new toggle switch
-    const playbackModeSwitch = document.getElementById('playback_mode');
-    const mode = playbackModeSwitch.checked ? 'simultaneous' : 'sequential';
+    try {
+        // 2. Fetch the list of audio file URLs
+        const playbackModeSwitch = document.getElementById('playback_mode');
+        const mode = playbackModeSwitch.checked ? 'simultaneous' : 'sequential';
+        const response = await fetch(`${PLAYLIST_URL}?order=special`);
+        const urls = await response.json();
 
-    // Construct the URL with the special ordering, the chosen mode, and a cache-buster
-    const playbackUrl = `${MASTER_PLAYBACK_URL}?order=special&mode=${mode}&t=${new Date().getTime()}`;
+        if (!urls || urls.length === 0) {
+            throw new Error("No 'ahhhs' have been submitted yet.");
+        }
 
-    // --- IPHONE FIX: Always create a new Audio object on play ---
-    // This ensures the play action is always directly tied to the user's tap.
-    masterPlaybackAudio = new Audio(playbackUrl);
-    masterPlaybackAudio.loop = true;
-    masterPlaybackAudio.play()
-        .then(() => {
-            if (statusText) statusText.textContent = "Playing the endless ahhh... Click the button again to stop.";
-        })
-        .catch(error => {
-            let errorMessage;
-            // This specific error message often means the server sent an invalid audio source,
-            // which can happen if no recordings exist yet.
-            if (error.message.includes("no supported source was found")) {
-                errorMessage = "Playback failed. Have any 'ahhhs' been submitted yet? The drone needs at least one recording to play.";
+        if (statusText) statusText.textContent = `Loading ${urls.length} ahhhs...`;
+
+        // 3. Download and decode all audio files
+        const audioBuffers = await Promise.all(urls.map(async (url) => {
+            const audioResponse = await fetch(url);
+            const arrayBuffer = await audioResponse.arrayBuffer();
+            return await audioContext.decodeAudioData(arrayBuffer);
+        }));
+
+        // 4. Schedule playback
+        let startTime = audioContext.currentTime;
+        if (statusText) statusText.textContent = "Playing the endless ahhh...";
+
+        audioBuffers.forEach((buffer, index) => {
+            const source = audioContext.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioContext.destination);
+            source.start(startTime);
+            sources.push(source); // Keep track of sources to stop them later
+
+            if (mode === 'sequential') {
+                startTime += buffer.duration - 2; // Crossfade by overlapping for 2 seconds
             }
-            if (statusText) statusText.textContent = errorMessage;
-            console.error('Playback Error:', error);
-            if (playButton) playButton.textContent = "Play the Endless Ahhh";
-            masterPlaybackAudio = null;
         });
+
+    } catch (error) {
+        if (statusText) statusText.textContent = "Playback failed: " + error.message;
+        console.error('Playback Error:', error);
+        if (playButton) playButton.textContent = "Play the Endless Ahhh";
+        // Clean up on failure
+        audioContext.close().then(() => audioContext = null);
+    }
 }
 
 function discardAhhh() {
