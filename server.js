@@ -53,7 +53,10 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
         const finalName = `ahhh-${Date.now()}${path.extname(req.file.originalname)}`;
         const finalPath = path.join(PERSISTENT_STORAGE_PATH, finalName);
 
-        fs.renameSync(tempPath, finalPath);
+        // Use copy and unlink instead of rename to move files across different devices/mounts.
+        fs.copyFileSync(tempPath, finalPath);
+        fs.unlinkSync(tempPath);
+        
         console.log(`LOG: File saved directly to ${finalPath}`);
         res.status(200).json({ message: 'Successfully added to the communal ahhh!', status: 'processed' });
     } catch (error) {
