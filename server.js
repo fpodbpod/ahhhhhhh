@@ -140,7 +140,11 @@ app.get('/api/master_drone', async (req, res) => {
         if (req.query.mode === 'sequential') {
             // SEQUENTIAL MODE: Use the 'concat' filter to play files one after another.
             console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
-            command.complexFilter(`concat=n=${playlist.length}:v=0:a=1`);
+            // Build an explicit filter chain for concat: [0:a][1:a]...concat=n=X:v=0:a=1[a]
+            const inputs = playlist.map((_, index) => `[${index}:a]`).join('');
+            const filter = `${inputs}concat=n=${playlist.length}:v=0:a=1[a]`;
+            command.complexFilter(filter);
+            command.outputOptions('-map', '[a]'); // Map the final concatenated stream to the output
         } else {
             // SIMULTANEOUS (LAYERED) MODE: Use the 'amix' filter to play all at once.
             console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
