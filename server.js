@@ -158,7 +158,12 @@ app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callb
                 command.complexFilter(filter).outputOptions('-map', `[a${playlist.length - 2}]`);
             } else {
                 console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
-                command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
+                try {
+                    command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
+                } catch (e) {
+                    console.error("AMIX FILTER FAILED:", e);
+                    return res.status(500).send('Failed to build audio mix filter.');
+                }
             }
 
             command
@@ -206,8 +211,8 @@ function trimAndSave(inputPath, outputPath) {
 
             // --- DEFINITIVE STABILITY FIX ---
             // The silenceremove filter is unstable with AAC audio from iPhones.
-            // To ensure stability, we will only apply it to non-MP4 files.
-            if (path.extname(inputPath).toLowerCase() === '.mp4') {
+            // We check the ORIGINAL filename extension from the upload.
+            if (path.extname(req.file.originalname).toLowerCase() === '.mp4') {
                 console.log('LOG: MP4 detected. Performing clean conversion to WebM without silence removal to ensure stability.');
                 command.outputOptions(['-c:a libopus', '-b:a 160k', '-f webm']);
             } else {
