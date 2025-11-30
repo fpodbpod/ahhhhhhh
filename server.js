@@ -146,26 +146,27 @@ app.get('/api/master_drone', async (req, res) => { // Make the entire function a
 
         if (req.query.mode === 'sequential') {
             console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
-            // Build a filter that normalizes all inputs before concatenating
-            const inputs = playlist.map((_, i) => `[${i}:a]aformat=sample_rates=44100:channel_layouts=stereo[a${i}];`).join('');
-            const concatInputs = playlist.map((_, i) => `[a${i}]`).join('');
-            command.complexFilter(`${inputs}${concatInputs}concat=n=${playlist.length}:v=0:a=1[out]`).outputOptions('-map', '[out]');
+            // --- DEFINITIVE FIX: Use the concat protocol for stability ---
+            // Create a temporary file list for ffmpeg to read.
+            const fileList = playlist.map(p => `file '${p}'`).join('\n');
+            const listFilePath = path.join(UPLOAD_DIR, `playlist-${Date.now()}.txt`);
+            fs.writeFileSync(listFilePath, fileList);
+
+            // Use the concat protocol, which is more stable than the concat filter.
+            command
+                .input(listFilePath)
+                .inputOptions(['-f concat', '-safe 0'])
+                .outputOptions(['-c copy']); // Copy the stream without re-encoding
+
         } else {
             console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
-            try {
-                // --- DEFINITIVE FIX: Normalize all streams before mixing ---
-                // The aformat filter ensures all inputs have the same sample rate and layout,
-                // preventing the "Conversion failed!" error during the mix.
-                const inputs = playlist.map((_, i) => `[${i}:a]`).join('');
-                command.complexFilter(`${inputs}amix=inputs=${playlist.length}:duration=longest`);
-            } catch (e) {
-                console.error("AMIX FILTER FAILED:", e);
-                return res.status(500).send('Failed to build audio mix filter.');
-            }
+            // For amix, we still need to re-encode, but we simplify the command.
+            playlist.forEach(file => command.input(file));
+            command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
         }
 
         command
-            .outputOptions(['-movflags faststart', '-c:a aac', '-b:a 192k']) // Use the AAC codec for MP4
+            .outputOptions(['-movflags faststart', '-c:a aac', '-b:a 192k'])
             .toFormat('mp4').pipe(res, { end: true });
             
     } catch (error) {
