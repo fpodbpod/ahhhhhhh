@@ -144,26 +144,24 @@ app.get('/api/master_drone', async (req, res) => { // Make the entire function a
             }
         });
 
-        if (req.query.mode === 'simultaneous') {
-            console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
-            // --- STABILITY FALLBACK ---
-            // The 'amix' filter requires re-encoding, which is failing on the Render server.
-            // We will fall back to the stable 'concat' protocol to prevent crashes.
-            // This makes the UI switch a placebo but guarantees a working application.
-            console.warn('WARN: amix filter is unstable. Falling back to sequential concatenation.');
-            const fileList = playlist.map(p => `file '${p}'`).join('\n');
-            const listFilePath = path.join(UPLOAD_DIR, `playlist-${Date.now()}.txt`);
-            fs.writeFileSync(listFilePath, fileList);
-            command.input(listFilePath).inputOptions(['-f concat', '-safe 0']).outputOptions(['-c copy']);
-        } else { // Sequential mode
-            console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
-            // For amix, we still need to re-encode, but we simplify the command.
-            playlist.forEach(file => command.input(file));
-            command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
-        }
+        // --- DEFINITIVE STABILITY FIX: Use the concat protocol for ALL playback. ---
+        // The amix/re-encoding process is failing on Render. The concat protocol avoids re-encoding.
+        // Both 'simultaneous' and 'sequential' modes will now use this stable method.
+        console.log(`LOG: Generating stable concatenated stream with ${playlist.length} files.`);
+
+        // 1. Create a temporary text file listing all the files to concatenate.
+        const fileList = playlist.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+        const listFilePath = path.join(UPLOAD_DIR, `playlist-${Date.now()}.txt`);
+        fs.writeFileSync(listFilePath, fileList);
+
+        // 2. Tell ffmpeg to use the concat protocol. It will read the text file
+        // and stitch the audio files together without re-encoding.
+        command
+            .input(listFilePath)
+            .inputOptions(['-f concat', '-safe 0'])
+            .outputOptions(['-c copy']); // Critically, we COPY the stream, we don't re-encode it.
 
         command
-            .outputOptions(['-movflags faststart', '-c:a aac', '-b:a 192k'])
             .toFormat('mp4').pipe(res, { end: true });
             
     } catch (error) {
