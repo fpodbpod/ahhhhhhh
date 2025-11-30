@@ -134,9 +134,6 @@ app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callb
             const command = ffmpeg();
             playlist.forEach(file => command.input(file));
 
-            // --- FINAL COMPATIBILITY FIX: Always stream MP4 for universal playback. ---
-            // This matches the AAC encoder settings below.
-            res.setHeader('Content-Type', 'audio/mp4');
             // --- UNIFIED FORMAT PIPELINE: Always stream WebM. ---
             // The files on disk are WebM, so we will stream WebM.
             // This avoids the on-the-fly Opus -> AAC conversion that is failing.
@@ -165,14 +162,6 @@ app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callb
             }
 
             command
-                // --- FINAL iOS COMPATIBILITY FIX ---
-                // Enforce a specific, highly-compatible AAC profile and sample rate for the output stream.
-                .outputOptions([
-                    '-movflags faststart', // Optimizes for streaming
-                    '-profile:a aac_he_v2',  // Use High-Efficiency AAC v2 Profile
-                    '-ar 44100'            // Set a standard audio sample rate
-                ])
-                .toFormat('mp4').pipe(res, { end: true });
                 .outputOptions('-movflags faststart') // Optimizes the stream for web playback
                 .toFormat('webm').pipe(res, { end: true });
         });
