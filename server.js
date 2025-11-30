@@ -137,6 +137,10 @@ app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callb
             // --- FINAL COMPATIBILITY FIX: Always stream MP4 for universal playback. ---
             // This matches the AAC encoder settings below.
             res.setHeader('Content-Type', 'audio/mp4');
+            // --- UNIFIED FORMAT PIPELINE: Always stream WebM. ---
+            // The files on disk are WebM, so we will stream WebM.
+            // This avoids the on-the-fly Opus -> AAC conversion that is failing.
+            res.setHeader('Content-Type', 'audio/webm');
 
             command.on('error', (err) => {
                 console.error('FFmpeg streaming error:', err.message);
@@ -147,9 +151,14 @@ app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callb
 
             if (req.query.mode === 'sequential') {
                 console.log(`LOG: Generating sequential stream with ${playlist.length} files.`);
-                const inputs = playlist.map((_, index) => `[${index}:a]`).join('');
-                const filter = `${inputs}concat=n=${playlist.length}:v=0:a=1[a]`;
-                command.complexFilter(filter).outputOptions('-map', '[a]');
+                // --- RE-INTRODUCE CROSSFADING ---
+                // Build a filter chain that crossfades each file into the next.
+                const filter = playlist.slice(1).reduce((acc, _, index) => {
+                    const input1 = index === 0 ? '[0:a]' : `[a${index - 1}]`;
+                    const input2 = `[${index + 1}:a]`;
+                    return `${acc}${input1}${input2}acrossfade=d=2[a${index}];`;
+                }, '').slice(0, -1); // Build chain and remove final semicolon
+                command.complexFilter(filter).outputOptions('-map', `[a${playlist.length - 2}]`);
             } else {
                 console.log(`LOG: Generating simultaneous (amix) stream with ${playlist.length} files.`);
                 command.complexFilter(`amix=inputs=${playlist.length}:duration=longest`);
@@ -164,6 +173,8 @@ app.get('/api/master_drone', (req, res) => { // Removed async as we'll use callb
                     '-ar 44100'            // Set a standard audio sample rate
                 ])
                 .toFormat('mp4').pipe(res, { end: true });
+                .outputOptions('-movflags faststart') // Optimizes the stream for web playback
+                .toFormat('webm').pipe(res, { end: true });
         });
     } catch (error) {
         console.error('Error serving master drone:', error);
@@ -202,11 +213,15 @@ app.post('/api/reset', (req, res) => {
 function trimAndSave(inputPath, outputPath) {
     return new Promise((resolve, reject) => {
         try {
-            // --- NEW STABLE STRATEGY: Universal Conversion ---
-            // Remove all complex filters. Simply convert any input to a standard WebM/Opus file.
-            // This is the most stable and reliable method.
+            // --- RE-INTRODUCE SILENCE REMOVAL (STABLE METHOD) ---
+            // By applying the complex filter to all inputs, we force ffmpeg to decode
+            // the audio before filtering, which is more reliable for all source formats.
             ffmpeg(inputPath)
-                .outputOptions(['-c:a libopus', '-b:a 160k', '-f webm'])
+                .complexFilter([
+                    '[0:a]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim1]','[trim1]areverse[rev1]','[rev1]silenceremove=start_periods=1:start_duration=1:start_threshold=0.02[trim2]','[trim2]areverse[out]',
+                ]).outputOptions([
+                    '-map [out]', '-c:a libopus', '-b:a 160k', '-f webm'
+                ])
                 .save(outputPath)
             .on('end', async () => {
                 try {
