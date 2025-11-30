@@ -319,7 +319,9 @@ function submitAhhh() {
     if (discardButton) discardButton.disabled = true;
     if (recordButton) recordButton.disabled = true; 
     
-    const blob = new Blob(recordedChunks, { type: supportedMimeType });
+    // Let the browser infer the MIME type from the chunks themselves.
+    // This is more robust on iOS, which can be picky about type mismatches.
+    const blob = new Blob(recordedChunks);
     const formData = new FormData();
     formData.append('audio', blob, `my-ahhh${fileExtension}`);
     
@@ -418,7 +420,8 @@ function previewAhhh() {
         return;
     }
     if (statusText) statusText.textContent = "Previewing your 'Ahhh'...";
-    const blob = new Blob(recordedChunks, { type: supportedMimeType });
+    // Let the browser infer the MIME type for the preview blob as well.
+    const blob = new Blob(recordedChunks);
     const audioUrl = URL.createObjectURL(blob);
     const audio = new Audio(audioUrl);
     audio.play()
