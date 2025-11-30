@@ -45,6 +45,13 @@
     }
 
     /* Primary Action Buttons */
+    #enableMicButton {
+        background-color: #34c759; /* Green */
+        color: white;
+    }
+    #enableMicButton:hover {
+        background-color: #28a745;
+    }
     #recordButton {
         background-color: #ff3b30; /* Red for Record */
         color: white;
@@ -91,6 +98,23 @@
     }
     .footer-controls input { padding: 5px; border: 1px solid #ccc; border-radius: 4px; }
     .footer-controls button { background: #eee; border: 1px solid #ccc; border-radius: 50%; width: 30px; height: 30px; }
+
+    /* --- Responsive Styles for Mobile --- */
+    @media (max-width: 700px) {
+        #sound-art-app {
+            /* Remove large margins and padding for small screens */
+            margin: 10px;
+            padding: 20px;
+            width: auto; /* Allow it to fill the available space */
+            /* Remove decorative border/shadow on mobile for a cleaner look */
+            box-shadow: none;
+            border: none;
+        }
+
+        #sound-art-app h3 {
+            font-size: 2.2em; /* Reduce title size slightly */
+        }
+    }
 
 </style>
 
