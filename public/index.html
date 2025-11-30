@@ -190,6 +190,20 @@ function waitForAppAndInitialize() {
 // Start the initialization check.
 waitForAppAndInitialize();
 
+function isDesktop() {
+    // A simple check to distinguish mobile/tablet from desktop.
+    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+    return !/android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    if (isDesktop()) {
+        console.log("LOG: Desktop browser detected. Disabling recording.");
+        document.getElementById('enableMicButton').style.display = 'none';
+        document.getElementById('status').textContent = "This experience is optimized for mobile. Please visit on your phone to contribute.";
+    }
+});
+
 // --- 4. Main Application Functions ---
 
 // This function handles getting the mic access when the button is clicked
