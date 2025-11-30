@@ -199,8 +199,11 @@ function isDesktop() {
 document.addEventListener('DOMContentLoaded', () => {
     if (isDesktop()) {
         console.log("LOG: Desktop browser detected. Disabling recording.");
-        document.getElementById('enableMicButton').style.display = 'none';
-        document.getElementById('status').textContent = "This experience is optimized for mobile. Please visit on your phone to contribute.";
+        const enableMicButton = document.getElementById('enableMicButton');
+        const statusText = document.getElementById('status');
+        
+        if (enableMicButton) enableMicButton.style.display = 'none';
+        if (statusText) statusText.innerHTML = '<strong style="color: red;">Currently only available on mobile devices. Please open on your phone to continue.</strong>';
     }
 });
 
