@@ -382,17 +382,6 @@ function submitAhhh() {
 async function playAhhh() {
     // --- NEW Web Audio API Playback Logic ---
 
-    // 1. Initialize Audio Context on first play
-    if (!audioContext) {
-        try {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        } catch (e) {
-            if (statusText) statusText.textContent = "Error: Web Audio API is not supported in this browser.";
-            console.error(e);
-            return;
-        }
-    }
-
     // If audio is already playing, stop it.
     if (audioContext.state === 'running') {
         sources.forEach(source => source.stop());
@@ -403,6 +392,18 @@ async function playAhhh() {
             if (playButton) playButton.textContent = "Play the Endless Ahhh";
         });
         return;
+    }
+
+    // --- DEFINITIVE FIX: Initialize Audio Context on user gesture ---
+    // This ensures the context is created or resumed by the user's tap, which is required by browsers.
+    if (!audioContext || audioContext.state === 'closed') {
+        try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {
+            if (statusText) statusText.textContent = "Error: Web Audio API is not supported in this browser.";
+            console.error(e);
+            return;
+        }
     }
 
     // Resume context if it was suspended (important for mobile)
