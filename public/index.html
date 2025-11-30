@@ -386,9 +386,10 @@ async function playAhhh() {
     if (audioContext.state === 'running') {
         sources.forEach(source => source.stop());
         sources = [];
-        audioContext.close().then(() => {
-            audioContext = null;
-            if (statusText) statusText.textContent = "Playback stopped. Ready to enable microphone.";
+        // --- DEFINITIVE FIX: Suspend the context instead of closing it. ---
+        // This is more reliable on mobile and prevents the audio engine from getting into a zombie state.
+        audioContext.suspend().then(() => {
+            if (statusText) statusText.textContent = "Playback paused. Ready to enable microphone.";
             if (playButton) playButton.textContent = "Play the Endless Ahhh";
         });
         return;
@@ -396,7 +397,7 @@ async function playAhhh() {
 
     // --- DEFINITIVE FIX: Initialize or Resume Audio Context on user gesture ---
     // This ensures the context is created or resumed by the user's tap, which is required by browsers.
-    if (!audioContext || audioContext.state === 'closed') {
+    if (!audioContext) {
         try {
             console.log("LOG: Creating new AudioContext.");
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -480,10 +481,7 @@ async function playAhhh() {
         console.error('Playback Error:', error);
         if (playButton) playButton.textContent = "Play the Endless Ahhh";
         // Clean up on failure
-        if (audioContext) {
-            audioContext.close();
-            audioContext = null;
-        }
+        // Do not close the context on a simple playback error, allow the user to try again.
     }
 }
 
