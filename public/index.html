@@ -132,7 +132,7 @@
     <!-- Main Action Group -->
     <div class="controls-group" style="flex-direction: column; gap: 15px; margin-top: 30px; margin-bottom: 20px;">
         <button id="enableMicButton" class="btn" style="width: 80%; font-size: 1.1em;">Enable Microphone to Begin</button>
-        <button id="playChainButton" class="btn" style="width: 80%; font-size: 1.1em;">Play the Endless Ahhh</button>
+        <button id="playChainButton" class="btn" style="width: 80%; font-size: 1.1em;">Play the Endless Ahhhhhhh</button>
     </div>
 
     <!-- Playback Mode Toggle -->
@@ -326,20 +326,36 @@ async function startRecording() {
         return;
     }
 
+    // --- Visual Countdown ---
+    const overlay = document.getElementById('countdown-overlay');
+    const countdownText = document.getElementById('countdown-text');
+    if (!overlay || !countdownText) return;
+
+    overlay.classList.remove('hidden-control');
+
+    const flash = async (text, duration) => {
+        countdownText.textContent = text;
+        countdownText.style.opacity = '1';
+        countdownText.style.transform = 'scale(1)';
+        overlay.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
+        await sleep(duration);
+        countdownText.style.opacity = '0';
+        countdownText.style.transform = 'scale(0.5)';
+        overlay.style.backgroundColor = 'rgba(255, 0, 0, 0)';
+        await sleep(200); // Pause between flashes
+    };
 
     // --- Countdown Logic ---
     if (statusText) statusText.textContent = "Get ready...";
-    await sleep(1000);
-    if (statusText) statusText.textContent = "3...";
-    await sleep(1000);
-    if (statusText) statusText.textContent = "2...";
-    await sleep(1000);
-    if (statusText) statusText.textContent = "1...";
-    await sleep(1000);
+    await sleep(500);
+    await flash('3', 800);
+    await flash('2', 800);
+    await flash('1', 800);
 
     // --- START RECORDING AFTER COUNTDOWN ---
     recordedChunks = [];
     mediaRecorder.start();
+    overlay.classList.add('hidden-control'); // Hide overlay when recording starts
     if (stopButton) stopButton.disabled = false;
     if (statusText) statusText.textContent = "Recording... (Max 5 seconds)";
 
@@ -373,7 +389,7 @@ function submitAhhh() {
         return;
     }
     
-    if (statusText) statusText.textContent = "Submitting to the collective ahhh... please wait.";
+    if (statusText) statusText.textContent = "Submitting to the collective ahhhhhhh... please wait.";
     if (submitButton) submitButton.disabled = true;
     if (discardButton) discardButton.disabled = true;
     if (recordButton) recordButton.disabled = true; 
@@ -392,7 +408,7 @@ function submitAhhh() {
     .then(data => {
         // Check for the specific success status from our server
         if (data && data.status === 'processed') {
-            if (statusText) statusText.textContent = "Submission successful! Your ahhh is now part of the drone.";
+            if (statusText) statusText.textContent = "Submission successful! Your ahhhhhhh is now part of the drone.";
             recordedChunks = []; // Clear the recording
         } else {
             // If the server gives a success status code but not our expected message, something is wrong.
@@ -421,8 +437,8 @@ async function playAhhh() {
         sources.forEach(source => source.stop());
         sources = [];
         audioContext.suspend().then(() => {
-            if (statusText) statusText.textContent = "Playback paused. Ready to enable microphone.";
-            if (playButton) playButton.textContent = "Play the Endless Ahhh";
+            if (statusText) statusText.textContent = "Playback paused.";
+            if (playButton) playButton.textContent = "Play the Endless Ahhhhhhh";
         });
         return;
     }
@@ -450,8 +466,8 @@ async function playAhhh() {
         return;
     }
 
-    if (statusText) statusText.textContent = "Fetching the collective ahhh...";
-    if (playButton) playButton.textContent = "Stop the Endless Ahhh";
+    if (statusText) statusText.textContent = "Fetching the collective ahhhhhhh...";
+    if (playButton) playButton.textContent = "Stop the Endless Ahhhhhhh";
 
     try {
         const playbackModeSwitch = document.getElementById('playback_mode');
@@ -460,10 +476,10 @@ async function playAhhh() {
         const urls = await response.json();
 
         if (!urls || urls.length === 0) {
-            throw new Error("No 'ahhhs' have been submitted yet.");
+            throw new Error("No 'ahhhhhhhs' have been submitted yet.");
         }
 
-        if (statusText) statusText.textContent = `Loading ${urls.length} ahhhs...`;
+        if (statusText) statusText.textContent = `Loading ${urls.length} ahhhhhhhs...`;
 
         const cacheBuster = new Date().getTime();
         const audioBuffers = await Promise.all(urls.map(async (url) => {
@@ -474,7 +490,7 @@ async function playAhhh() {
             return await audioContext.decodeAudioData(arrayBuffer);
         }));
 
-        if (statusText) statusText.textContent = "Playing the endless ahhh...";
+        if (statusText) statusText.textContent = "Playing the endless ahhhhhhh...";
         
         function scheduleLoop() {
             let nextStartTime = audioContext.currentTime;
@@ -510,7 +526,7 @@ async function playAhhh() {
     } catch (error) {
         if (statusText) statusText.textContent = "Playback failed: " + error.message;
         console.error('Playback Error:', error);
-        if (playButton) playButton.textContent = "Play the Endless Ahhh";
+        if (playButton) playButton.textContent = "Play the Endless Ahhhhhhh";
         // If fetching/decoding fails, suspend the context so the user can try again.
         if (audioContext) audioContext.suspend();
     }
