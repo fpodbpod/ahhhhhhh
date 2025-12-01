@@ -157,6 +157,11 @@
         <button id="unfreezeButton" style="display: none;">Unfreeze Interface</button>
     </div>
 </div>
+
+<!-- Countdown Overlay Element -->
+<div id="countdown-overlay" class="hidden-control" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(255, 0, 0, 0); display: flex; justify-content: center; align-items: center; z-index: 1000; pointer-events: none; transition: background-color 0.1s ease-in-out;">
+    <span id="countdown-text" style="font-size: 25vw; font-weight: bold; color: white; text-shadow: 0 0 25px rgba(0, 0, 0, 0.7); transform: scale(0.5); opacity: 0; transition: all 0.2s ease-out;"></span>
+</div>
 <script>
 // --- 1. Global Variables (CHANGED TO VAR TO PREVENT DUPLICATE DECLARATION ERROR) ---
 var mediaRecorder = null; 
