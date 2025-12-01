@@ -47,13 +47,13 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
     }
     
     const tempPath = req.file.path;
-    const finalName = `ahhh-${Date.now()}.mp4`; // Always save as .mp4
+    const finalName = `ahhhhhhh-${Date.now()}.mp4`; // Always save as .mp4
     const finalPath = path.join(PERSISTENT_STORAGE_PATH, finalName);
 
     try {
         // --- DEFINITIVE FIX: Use ffmpeg to normalize ALL uploads ---
         await normalizeAudio(tempPath, finalPath);
-        res.status(200).json({ message: 'Successfully added to the communal ahhh!', status: 'processed' });
+        res.status(200).json({ message: 'Successfully added to the communal ahhhhhhh!', status: 'processed' });
     } catch (error) {
         res.status(500).json({ message: 'Failed to process the new recording.', error: error.message });
     }
@@ -66,7 +66,7 @@ app.get('/api/playlist', (req, res) => {
         
         // Sort by creation time (newest first) based on the timestamp in the filename
         files.sort((a, b) => {
-            const timeA = parseInt(a.split('-')[1]);
+            const timeA = parseInt(a.split('-')[1] || '0');
             const timeB = parseInt(b.split('-')[1]);
             return timeB - timeA;
         });
@@ -104,7 +104,7 @@ app.post('/api/reset', (req, res) => {
     try {
         const files = fs.readdirSync(PERSISTENT_STORAGE_PATH);
         if (files.length === 0) {
-            return res.status(200).send('Nothing to reset. The communal ahhh was already empty.');
+            return res.status(200).send('Nothing to reset. The communal ahhhhhhh was already empty.');
         }
 
         files.forEach(file => {
@@ -112,7 +112,7 @@ app.post('/api/reset', (req, res) => {
         });
 
         console.log('LOG: All recordings have been deleted by secret key.');
-        res.status(200).send('The communal ahhh has been reset.');
+        res.status(200).send('The communal ahhhhhhh has been reset.');
     } catch (error) {
         console.error('ERROR: Failed to reset recordings:', error);
         res.status(500).send('An error occurred while trying to reset the recordings.');
