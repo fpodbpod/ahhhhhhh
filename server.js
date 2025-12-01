@@ -3,7 +3,7 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors'); // Import the cors package
-
+const ffmpeg = require('fluent-ffmpeg');
 const app = express();
 // Render assigns the port dynamically, so we use process.env.PORT
 const port = process.env.PORT || 3000; 
@@ -46,21 +46,15 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
         return res.status(400).send('No audio file uploaded.');
     }
     
-    try {
-        // --- NEW "DUMB SERVER" STRATEGY ---
-        // Simply move the uploaded file directly to persistent storage. No ffmpeg, no processing.
-        const tempPath = req.file.path;
-        const finalName = `ahhh-${Date.now()}${path.extname(req.file.originalname)}`;
-        const finalPath = path.join(PERSISTENT_STORAGE_PATH, finalName);
+    const tempPath = req.file.path;
+    const finalName = `ahhh-${Date.now()}.mp4`; // Always save as .mp4
+    const finalPath = path.join(PERSISTENT_STORAGE_PATH, finalName);
 
-        // Use copy and unlink instead of rename to move files across different devices/mounts.
-        fs.copyFileSync(tempPath, finalPath);
-        fs.unlinkSync(tempPath);
-        
-        console.log(`LOG: File saved directly to ${finalPath}`);
+    try {
+        // --- DEFINITIVE FIX: Use ffmpeg to normalize ALL uploads ---
+        await normalizeAudio(tempPath, finalPath);
         res.status(200).json({ message: 'Successfully added to the communal ahhh!', status: 'processed' });
     } catch (error) {
-        console.error('Error saving upload:', error);
         res.status(500).json({ message: 'Failed to process the new recording.', error: error.message });
     }
 });
@@ -68,7 +62,7 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
 // --- NEW API Endpoint: Serve the list of audio files ---
 app.get('/api/playlist', (req, res) => {
     try {
-        const files = fs.readdirSync(PERSISTENT_STORAGE_PATH).filter(f => f.endsWith('.mp4') || f.endsWith('.webm'));
+        const files = fs.readdirSync(PERSISTENT_STORAGE_PATH).filter(f => f.endsWith('.mp4'));
         
         // Sort by creation time (newest first) based on the timestamp in the filename
         files.sort((a, b) => {
@@ -124,6 +118,36 @@ app.post('/api/reset', (req, res) => {
         res.status(500).send('An error occurred while trying to reset the recordings.');
     }
 });
+
+// --- NEW Normalization Function ---
+function normalizeAudio(inputPath, outputPath) {
+    return new Promise((resolve, reject) => {
+        console.log(`LOG: Normalizing ${inputPath} to ${outputPath}`);
+        ffmpeg(inputPath)
+            .outputOptions([
+                '-c:a aac',    // Use the standard AAC audio codec
+                '-b:a 192k',   // Set a high-quality bitrate
+                '-ar 44100',   // Set a standard sample rate
+            ])
+            .save(outputPath)
+            .on('end', () => {
+                console.log('LOG: Normalization successful.');
+                // Clean up the temporary file
+                if (fs.existsSync(inputPath)) {
+                    fs.unlinkSync(inputPath);
+                }
+                resolve();
+            })
+            .on('error', (err) => {
+                console.error('ERROR: FFmpeg normalization failed:', err.message);
+                // Clean up the failed output file
+                if (fs.existsSync(outputPath)) {
+                    fs.unlinkSync(outputPath);
+                }
+                reject(err);
+            });
+    });
+}
 
 // --- Start Server ---
 app.listen(port, () => {
