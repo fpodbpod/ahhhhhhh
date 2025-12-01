@@ -465,8 +465,11 @@ async function playAhhh() {
 
         if (statusText) statusText.textContent = `Loading ${urls.length} ahhhs...`;
 
+        const cacheBuster = new Date().getTime();
         const audioBuffers = await Promise.all(urls.map(async (url) => {
-            const audioResponse = await fetch(url);
+            // --- DEFINITIVE CACHE-BUSTING FIX ---
+            // Append a unique timestamp to each URL to force the browser to bypass its cache.
+            const audioResponse = await fetch(`${url}?t=${cacheBuster}`);
             const arrayBuffer = await audioResponse.arrayBuffer();
             return await audioContext.decodeAudioData(arrayBuffer);
         }));
