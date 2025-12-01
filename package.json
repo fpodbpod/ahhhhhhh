@@ -1,7 +1,7 @@
 {
   "name": "ahhhhhhh-server",
   "version": "1.0.0",
-  "description": "The server for The Communal 'Ahhh' Project, using Express and FFmpeg.",
+  "description": "The server for The Communal 'Ahhhhhhh' Project, using Express and FFmpeg.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
